@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="el">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>CityBus – Δημοτική Συγκοινωνία</title>
+    <meta name="description" content="Επίλεξε γραμμή, δες τις στάσεις και μάθε πότε έρχεται το λεωφορείο." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <!-- ── MAP ── -->
+        <div id="map"></div>
+
+        <!-- ── Map legend ── -->
+        <div class="map-fab" id="mapFab" style="display:none">
+            <div class="fab-title" id="fabTitle">Γραμμές</div>
+            <div id="fabItems"></div>
+        </div>
+
+        <!-- ── BOTTOM SHEET ── -->
+        <div id="sheet">
+            <!-- Drag handle -->
+            <div class="drag-zone" id="dragZone">
+                <div class="drag-pill"></div>
+            </div>
+
+            <!-- Header -->
+            <div class="sheet-header">
+                <button class="back-btn hidden" id="backBtn" aria-label="Πίσω">‹</button>
+                <div class="sheet-title-wrap">
+                    <div class="sheet-title" id="sheetTitle">Επίλεξε Γραμμή</div>
+                    <div class="sheet-subtitle" id="sheetSub">Δημοτική Συγκοινωνία</div>
+                </div>
+                <div class="logo-icon">🚌</div>
+            </div>
+
+            <!-- Scrollable body -->
+            <div class="sheet-body" id="sheetBody"></div>
+        </div>
+    </div>
+
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
