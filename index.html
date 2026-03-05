@@ -6,6 +6,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>CityBus – Δημοτική Συγκοινωνία</title>
     <meta name="description" content="Επίλεξε γραμμή, δες τις στάσεις και μάθε πότε έρχεται το λεωφορείο." />
+
+    <!-- ── PWA Manifest ── -->
+    <link rel="manifest" href="manifest.json" />
+
+    <!-- ── Theme Color (Android status bar) ── -->
+    <meta name="theme-color" content="#3b7ef6" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- ── iOS / Safari PWA meta tags ── -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="CityBus" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+
+    <!-- ── Favicon ── -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
+
+    <!-- ── Fonts & Map ── -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
         rel="stylesheet" />
@@ -36,9 +55,11 @@
             <div class="sheet-header">
                 <button class="back-btn hidden" id="backBtn" aria-label="Πίσω">‹</button>
                 <div class="sheet-title-wrap">
-                    <div class="sheet-title" id="sheetTitle">Επίλεξε Γραμμή</div>
+                    <div class="sheet-title" id="sheetTitle">Επίλεξε Δήμο</div>
                     <div class="sheet-subtitle" id="sheetSub">Δημοτική Συγκοινωνία</div>
                 </div>
+                <button class="map-toggle-btn" id="mapToggleBtn" aria-label="Εναλλαγή χάρτη"
+                    title="Εμφάνιση / Απόκρυψη χάρτη">🗺️</button>
                 <div class="logo-icon">🚌</div>
             </div>
 
@@ -47,8 +68,18 @@
         </div>
     </div>
 
-    <script src="data.js"></script>
     <script src="app.js"></script>
+
+    <!-- ── Service Worker Registration ── -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('✅ CityBus SW registered:', reg.scope))
+                    .catch(err => console.warn('SW registration failed:', err));
+            });
+        }
+    </script>
 </body>
 
 </html>

@@ -1,14 +1,17 @@
 // ═══════════════════════════════════════════════════
-//  STATE
+//  STATE & DATA
 // ═══════════════════════════════════════════════════
-let state = { screen: 'lines', lineKey: null, stopId: null };
+let MUNICIPALITIES_DATA = null;
+let state = { screen: 'municipalities', municipalityId: null, lineKey: null, stopId: null };
 let mapLayers = [];
 let countdownInterval = null;
+let mapVisible = false; // map is hidden by default
+
 
 // ═══════════════════════════════════════════════════
 //  MAP INIT
 // ═══════════════════════════════════════════════════
-const map = L.map('map', { zoomControl: false }).setView([37.9750, 23.7350], 13);
+const map = L.map('map', { zoomControl: false }).setView([37.935, 23.715], 13);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     attribution: '© Carto © OpenStreetMap', maxZoom: 19,
 }).addTo(map);
@@ -18,8 +21,12 @@ const tooltipStyle = document.createElement('style');
 tooltipStyle.textContent = `.leaflet-tooltip-custom{background:rgba(255,255,255,0.97);color:#111827;border:1px solid rgba(0,0,0,0.10);border-radius:8px;font-family:Inter,sans-serif;font-size:12px;padding:4px 10px;box-shadow:0 4px 16px rgba(0,0,0,0.12);}`;
 document.head.appendChild(tooltipStyle);
 
+// Start with map hidden
+document.getElementById('app').classList.add('map-hidden');
+
 setTimeout(() => map.invalidateSize(), 100);
 window.addEventListener('resize', () => map.invalidateSize());
+
 
 function clearMapLayers() {
     mapLayers.forEach(l => map.removeLayer(l));
@@ -28,28 +35,42 @@ function clearMapLayers() {
 
 function addToMap(layer) { layer.addTo(map); mapLayers.push(layer); }
 
-// Draw all lines faintly on home screen
-function drawAllLinesFaint() {
+// Show all municipality center markers on the home screen
+function drawMunicipalitiesOverview() {
     clearMapLayers();
-    Object.entries(LINES).forEach(([, line]) => {
+    Object.values(MUNICIPALITIES_DATA).forEach(mun => {
+        const marker = L.circleMarker(mun.center, {
+            radius: 9, color: '#fff', fillColor: '#3b7ef6', fillOpacity: 1, weight: 2.5
+        }).addTo(map);
+        marker.bindTooltip(`<b>${mun.name}</b>`, { className: 'leaflet-tooltip-custom', permanent: true, direction: 'top' });
+        mapLayers.push(marker);
+    });
+    const coords = Object.values(MUNICIPALITIES_DATA).map(m => m.center);
+    if (coords.length > 0) map.fitBounds(L.latLngBounds(coords), { padding: [50, 50] });
+}
+
+// Draw all lines of a municipality faintly
+function drawAllLinesFaint(municipalityId) {
+    clearMapLayers();
+    const mun = MUNICIPALITIES_DATA[municipalityId];
+    if (!mun) return;
+    Object.values(mun.lines).forEach(line => {
         const coords = line.stops.map(s => s.coords);
-        addToMap(L.polyline(coords, { color: line.color, weight: 2.5, opacity: 0.2, dashArray: '7,6' }));
+        addToMap(L.polyline(coords, { color: line.color, weight: 2.5, opacity: 0.25, dashArray: '7,6' }));
         line.stops.forEach(s => {
-            addToMap(L.circleMarker(s.coords, { radius: 4, color: '#fff', fillColor: line.color, fillOpacity: 0.4, weight: 1.5 }));
+            addToMap(L.circleMarker(s.coords, { radius: 4, color: '#fff', fillColor: line.color, fillOpacity: 0.45, weight: 1.5 }));
         });
     });
 }
 
-function drawLine(lineKey, selectedStopId = null) {
+function drawLine(municipalityId, lineKey, selectedStopId = null) {
     clearMapLayers();
-    const line = LINES[lineKey];
+    const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
     const coords = line.stops.map(s => s.coords);
 
-    // Glow + solid polyline
     addToMap(L.polyline(coords, { color: line.color, weight: 12, opacity: 0.12 }));
     addToMap(L.polyline(coords, { color: line.color, weight: 4, opacity: 0.9 }));
 
-    // Stop markers
     line.stops.forEach(s => {
         const isSelected = s.id === selectedStopId;
         const isTerminal = !!s.terminal;
@@ -57,7 +78,7 @@ function drawLine(lineKey, selectedStopId = null) {
         const marker = L.circleMarker(s.coords, {
             radius: r,
             color: '#fff', fillColor: isSelected ? '#fff' : line.color,
-            fillOpacity: isSelected ? 1 : 1,
+            fillOpacity: 1,
             weight: isSelected ? 3 : 2,
             zIndexOffset: isSelected ? 1000 : 0,
         }).addTo(map);
@@ -65,16 +86,13 @@ function drawLine(lineKey, selectedStopId = null) {
         mapLayers.push(marker);
 
         if (isSelected) {
-            // Pulsing ring
             const ring = L.circleMarker(s.coords, {
-                radius: 18, color: line.color, fillColor: 'transparent',
-                weight: 2, opacity: 0.5,
+                radius: 18, color: line.color, fillColor: 'transparent', weight: 2, opacity: 0.5,
             }).addTo(map);
             mapLayers.push(ring);
         }
     });
 
-    // Fit bounds
     const bounds = L.latLngBounds(coords);
     const isMobile = window.innerWidth < 700;
     const pad = isMobile
@@ -88,21 +106,16 @@ function drawLine(lineKey, selectedStopId = null) {
 // ═══════════════════════════════════════════════════
 function minutesUntil(freq) {
     const now = new Date();
-    const mins = now.getMinutes();
-    const rem = freq - (mins % freq);
+    const rem = freq - (now.getMinutes() % freq);
     return rem === freq ? 0 : rem;
 }
 
 function buildSchedule(line, nowMins) {
     const [sh, sm] = line.hours.start.split(':').map(Number);
     const [eh, em] = line.hours.end.split(':').map(Number);
-    const startM = sh * 60 + sm;
-    const endM = eh * 60 + em;
     const times = [];
-    for (let t = startM; t <= endM; t += line.freq) {
-        const h = String(Math.floor(t / 60)).padStart(2, '0');
-        const m = String(t % 60).padStart(2, '0');
-        times.push({ label: `${h}:${m}`, totalMin: t });
+    for (let t = sh * 60 + sm; t <= eh * 60 + em; t += line.freq) {
+        times.push({ label: `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`, totalMin: t });
     }
     return times;
 }
@@ -115,74 +128,141 @@ function hexToRgb(hex) {
 }
 
 // ═══════════════════════════════════════════════════
+//  MAP TOGGLE
+// ═══════════════════════════════════════════════════
+function toggleMap() {
+    mapVisible = !mapVisible;
+    const app = document.getElementById('app');
+    const btn = document.getElementById('mapToggleBtn');
+    if (mapVisible) {
+        app.classList.remove('map-hidden');
+        btn.classList.add('active');
+        btn.title = 'Απόκρυψη χάρτη';
+        setTimeout(() => {
+            map.invalidateSize();
+            // Re-render map layers after map becomes visible
+            const { screen, municipalityId, lineKey, stopId } = state;
+            if (screen === 'municipalities') drawMunicipalitiesOverview();
+            else if (screen === 'lines') drawAllLinesFaint(municipalityId);
+            else if (screen === 'stops') drawLine(municipalityId, lineKey);
+            else if (screen === 'arrival') drawLine(municipalityId, lineKey, stopId);
+            setSheetState('mid');
+        }, 50);
+    } else {
+        app.classList.add('map-hidden');
+        btn.classList.remove('active');
+        btn.title = 'Εμφάνιση χάρτη';
+        // Let sheet fill the screen
+        const sheet = document.getElementById('sheet');
+        sheet.classList.remove('peek', 'expanded');
+    }
+}
+
+document.getElementById('mapToggleBtn').addEventListener('click', toggleMap);
+
+// ═══════════════════════════════════════════════════
 //  NAVIGATION
 // ═══════════════════════════════════════════════════
-function navigate(screen, lineKey = null, stopId = null) {
-    state = { screen, lineKey, stopId };
+function navigate(screen, municipalityId = state.municipalityId, lineKey = state.lineKey, stopId = state.stopId) {
+    state = { screen, municipalityId, lineKey, stopId };
     if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
     render();
 }
 
+
 function render() {
-    const { screen, lineKey, stopId } = state;
+    const { screen, municipalityId, lineKey, stopId } = state;
     const backBtn = document.getElementById('backBtn');
     const title = document.getElementById('sheetTitle');
     const sub = document.getElementById('sheetSub');
     const body = document.getElementById('sheetBody');
     const fab = document.getElementById('mapFab');
 
-    if (screen === 'lines') {
+    if (screen === 'municipalities') {
         backBtn.classList.add('hidden');
-        title.textContent = 'Επίλεξε Γραμμή';
+        title.textContent = 'Επίλεξε Δήμο';
         sub.textContent = 'Δημοτική Συγκοινωνία';
-        drawAllLinesFaint();
-        renderLinesFab();
-        body.innerHTML = buildLinesScreen();
+        title.style.color = '';
+        drawMunicipalitiesOverview();
+        fab.style.display = 'none';
+        body.innerHTML = buildMunicipalitiesScreen();
+
+    } else if (screen === 'lines') {
+        const mun = MUNICIPALITIES_DATA[municipalityId];
+        backBtn.classList.remove('hidden');
+        title.textContent = 'Επίλεξε Γραμμή';
+        sub.textContent = mun.name;
+        title.style.color = '';
+        drawAllLinesFaint(municipalityId);
+        renderLinesFab(municipalityId);
+        body.innerHTML = buildLinesScreen(municipalityId);
+        map.flyTo(mun.center, 14, { animate: true, duration: 1.5 });
+
     } else if (screen === 'stops') {
-        const line = LINES[lineKey];
+        const mun = MUNICIPALITIES_DATA[municipalityId];
+        const line = mun.lines[lineKey];
         backBtn.classList.remove('hidden');
         title.textContent = line.name;
-        sub.textContent = line.tag;
+        sub.textContent = mun.name;
         title.style.color = line.color;
-        drawLine(lineKey);
-        renderStopsFab(lineKey);
-        body.innerHTML = buildStopsScreen(lineKey);
+        drawLine(municipalityId, lineKey);
+        renderStopsFab(municipalityId, lineKey);
+        body.innerHTML = buildStopsScreen(municipalityId, lineKey);
+
     } else if (screen === 'arrival') {
-        const line = LINES[lineKey];
+        const mun = MUNICIPALITIES_DATA[municipalityId];
+        const line = mun.lines[lineKey];
         const stop = line.stops.find(s => s.id === stopId);
         backBtn.classList.remove('hidden');
         title.textContent = stop.name;
         sub.textContent = line.name;
         title.style.color = line.color;
-        drawLine(lineKey, stopId);
+        drawLine(municipalityId, lineKey, stopId);
         fab.style.display = 'none';
-        body.innerHTML = buildArrivalScreen(lineKey, stopId);
-        startCountdown(lineKey, stopId);
-
-        // Pan to selected stop
-        if (window.innerWidth < 700) {
-            const h = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-mid') || '55') * window.innerHeight / 100;
-            map.panTo(stop.coords, { animate: true });
-        } else {
-            map.panTo(stop.coords, { animate: true });
-        }
+        body.innerHTML = buildArrivalScreen(municipalityId, lineKey, stopId);
+        startCountdown(municipalityId, lineKey);
+        map.panTo(stop.coords, { animate: true });
     }
 
-    setSheetState('mid');
+    setSheetState(mapVisible ? 'mid' : 'full');
+}
+
+
+// ─────────────── MUNICIPALITIES SCREEN ───────────────
+function buildMunicipalitiesScreen() {
+    let html = `<div class="section-label">Διαθέσιμοι Δήμοι</div>`;
+    Object.values(MUNICIPALITIES_DATA).forEach(mun => {
+        const linesCount = Object.keys(mun.lines).length;
+        html += `
+          <div class="line-card" style="--lc:#3b7ef6" onclick="navigate('lines', '${mun.id}')">
+            <div class="line-badge" style="background:rgba(59,126,246,0.12);color:#3b7ef6">🏛</div>
+            <div class="line-info">
+              <div class="line-name">${mun.name}</div>
+              <div class="line-tag">Δημοτική Συγκοινωνία</div>
+            </div>
+            <div class="line-meta">
+              <div class="line-freq">${linesCount}</div>
+              <div class="line-freq-lbl">γραμμές</div>
+            </div>
+            <div class="chevron">›</div>
+          </div>`;
+    });
+    return html;
 }
 
 // ─────────────── LINES SCREEN ───────────────
-function buildLinesScreen() {
+function buildLinesScreen(municipalityId) {
     let html = `<div class="section-label">Διαθέσιμες Γραμμές</div>`;
-    Object.entries(LINES).forEach(([key, line]) => {
+    const lines = MUNICIPALITIES_DATA[municipalityId].lines;
+    Object.entries(lines).forEach(([key, line]) => {
         const nextBus = minutesUntil(line.freq);
         const rgb = hexToRgb(line.color);
         html += `
-          <div class="line-card" style="--lc:${line.color}" onclick="navigate('stops','${key}')">
+          <div class="line-card" style="--lc:${line.color}" onclick="navigate('stops', '${municipalityId}', '${key}')">
             <div class="line-badge" style="background:rgba(${rgb},0.15);color:${line.color}">${key}</div>
             <div class="line-info">
               <div class="line-name">${line.name}</div>
-              <div class="line-tag">${line.tag}</div>
+              <div class="line-tag">${line.stops[0].name} → ${line.stops[line.stops.length - 1].name}</div>
             </div>
             <div class="line-meta">
               <div class="line-freq">${nextBus === 0 ? 'Τώρα' : nextBus + ' λεπτά'}</div>
@@ -195,22 +275,23 @@ function buildLinesScreen() {
     return html;
 }
 
-function renderLinesFab() {
+function renderLinesFab(municipalityId) {
     const fab = document.getElementById('mapFab');
     const items = document.getElementById('fabItems');
     document.getElementById('fabTitle').textContent = 'Γραμμές';
     fab.style.display = 'block';
-    items.innerHTML = Object.entries(LINES).map(([key, l]) =>
+    const lines = MUNICIPALITIES_DATA[municipalityId].lines;
+    items.innerHTML = Object.entries(lines).map(([key, l]) =>
         `<div class="fab-item">
           <div class="fab-dot" style="background:${l.color}"></div>
-          <div class="fab-label">${key} – ${l.tag.split('→')[0].trim()}</div>
+          <div class="fab-label">${key}</div>
         </div>`
     ).join('');
 }
 
 // ─────────────── STOPS SCREEN ───────────────
-function buildStopsScreen(lineKey) {
-    const line = LINES[lineKey];
+function buildStopsScreen(municipalityId, lineKey) {
+    const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
     const nextBus = minutesUntil(line.freq);
     let html = `
         <div class="section-label" style="color:${line.color}">Στάσεις • ${line.stops.length} συνολικά</div>
@@ -219,10 +300,9 @@ function buildStopsScreen(lineKey) {
         const isFirst = i === 0;
         const isLast = i === line.stops.length - 1;
         const badge = isFirst ? `<span class="stop-badge start">Αφετηρία</span>`
-            : isLast ? `<span class="stop-badge end">Τέρμα</span>`
-                : '';
+            : isLast ? `<span class="stop-badge end">Τέρμα</span>` : '';
         html += `
-          <div class="stop-row ${s.terminal ? 'terminal' : ''}" onclick="navigate('arrival','${lineKey}','${s.id}')">
+          <div class="stop-row ${isFirst || isLast ? 'terminal' : ''}" onclick="navigate('arrival', '${municipalityId}', '${lineKey}', '${s.id}')">
             <div class="stop-dot-wrap"><div class="stop-dot"></div></div>
             <div class="stop-info">
               <div class="stop-name">${s.name}</div>
@@ -236,8 +316,8 @@ function buildStopsScreen(lineKey) {
     return html;
 }
 
-function renderStopsFab(lineKey) {
-    const line = LINES[lineKey];
+function renderStopsFab(municipalityId, lineKey) {
+    const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
     const fab = document.getElementById('mapFab');
     const items = document.getElementById('fabItems');
     document.getElementById('fabTitle').textContent = line.name;
@@ -251,14 +331,14 @@ function renderStopsFab(lineKey) {
 }
 
 // ─────────────── ARRIVAL SCREEN ───────────────
-function buildArrivalScreen(lineKey, stopId) {
-    const line = LINES[lineKey];
+function buildArrivalScreen(municipalityId, lineKey, stopId) {
+    const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
     const stop = line.stops.find(s => s.id === stopId);
     const now = new Date();
     const nowMins = now.getHours() * 60 + now.getMinutes();
     const times = buildSchedule(line, nowMins);
-
     const nextBus = minutesUntil(line.freq);
+
     const arrivalHTML = nextBus === 0
         ? `<div class="arrival-now"><div class="pulse-dot"></div> Φτάνει τώρα!</div>`
         : `<div class="arrival-countdown">
@@ -267,21 +347,19 @@ function buildArrivalScreen(lineKey, stopId) {
            </div>
            <div class="arrival-label" id="cdLabel">μέχρι το επόμενο λεωφορείο</div>`;
 
-    // next 3 arrivals
     const nextThree = [];
     let m = minutesUntil(line.freq);
     for (let i = 0; i < 3; i++) {
-        const arrivalTime = new Date(now.getTime() + (m + i * line.freq) * 60000);
-        nextThree.push(arrivalTime.toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' }));
+        const t = new Date(now.getTime() + (m + i * line.freq) * 60000);
+        nextThree.push(t.toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' }));
     }
 
     const nextBusesHTML = nextThree.map((t, i) => `
-        <div class="next-bus-chip" style="${i === 0 ? 'border-color:rgba(59, 126, 246, 0.4);' : ''}">
+        <div class="next-bus-chip" style="${i === 0 ? 'border-color:rgba(59,126,246,0.4);' : ''}">
           <div class="chip-time" style="${i === 0 ? 'color:var(--accent)' : ''}">${t}</div>
           <div class="chip-lbl">${i === 0 ? 'Επόμενο' : i === 1 ? '2ο' : '3ο'}</div>
         </div>`).join('');
 
-    // Schedule chips
     const chipsHTML = times.map(t => {
         const isPast = t.totalMin < nowMins;
         const isNext = !isPast && t.totalMin >= nowMins && t.totalMin < nowMins + line.freq;
@@ -296,32 +374,24 @@ function buildArrivalScreen(lineKey, stopId) {
             <p>${line.name} · Συχνότητα ανά ${line.freq} λεπτά</p>
           </div>
         </div>
-
         <div class="arrival-card" style="--lc:${line.color}">
           ${arrivalHTML}
           <div class="next-buses">${nextBusesHTML}</div>
         </div>
-
         <div class="schedule-title">Δρομολόγια σήμερα (${line.hours.start} – ${line.hours.end})</div>
-        <div class="schedule-grid">${chipsHTML}</div>
-      `;
+        <div class="schedule-grid">${chipsHTML}</div>`;
 }
 
-function startCountdown(lineKey, stopId) {
-    const line = LINES[lineKey];
-    const update = () => {
+function startCountdown(municipalityId, lineKey) {
+    const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
+    countdownInterval = setInterval(() => {
         const mins = minutesUntil(line.freq);
         const numEl = document.getElementById('cdNum');
         const lblEl = document.getElementById('cdLabel');
         if (!numEl) { clearInterval(countdownInterval); return; }
-        if (mins === 0) {
-            numEl.textContent = '0';
-            if (lblEl) lblEl.textContent = 'Φτάνει τώρα!';
-        } else {
-            numEl.textContent = mins;
-        }
-    };
-    countdownInterval = setInterval(update, 30000);
+        numEl.textContent = mins;
+        if (mins === 0 && lblEl) lblEl.textContent = 'Φτάνει τώρα!';
+    }, 30000);
 }
 
 // ═══════════════════════════════════════════════════
@@ -339,30 +409,19 @@ function startCountdown(lineKey, stopId) {
         sheet.classList.remove('peek', 'expanded');
         if (s === 'peek') sheet.classList.add('peek');
         if (s === 'expanded') sheet.classList.add('expanded');
+        // 'mid' and 'full' both remove classes; 'full' just means map is hidden (handled by CSS)
         setTimeout(() => map.invalidateSize(), 380);
     };
 
+
     let sy = 0, sh0 = 0, dragging = false;
 
-    function start(y) {
-        if (!isMobile()) return;
-        dragging = true; sy = y;
-        sh0 = sheet.getBoundingClientRect().height;
-        sheet.style.transition = 'none';
-    }
-
-    function move(y) {
-        if (!dragging || !isMobile()) return;
-        const newH = Math.min(window.innerHeight * 0.93, Math.max(PEEK, sh0 + (sy - y)));
-        sheet.style.height = newH + 'px';
-    }
-
+    function start(y) { if (!isMobile()) return; dragging = true; sy = y; sh0 = sheet.getBoundingClientRect().height; sheet.style.transition = 'none'; }
+    function move(y) { if (!dragging || !isMobile()) return; sheet.style.height = Math.min(window.innerHeight * 0.93, Math.max(PEEK, sh0 + (sy - y))) + 'px'; }
     function end(y) {
         if (!dragging || !isMobile()) return;
-        dragging = false;
-        sheet.style.transition = '';
-        const dy = sy - y;
-        const midH = window.innerHeight * 0.55;
+        dragging = false; sheet.style.transition = '';
+        const dy = sy - y, midH = window.innerHeight * 0.55;
         if (dy > 80) setSheetState('expanded');
         else if (dy < -80) setSheetState('peek');
         else {
@@ -377,16 +436,12 @@ function startCountdown(lineKey, stopId) {
     zone.addEventListener('touchstart', e => start(e.touches[0].clientY), { passive: true });
     window.addEventListener('touchmove', e => move(e.touches[0].clientY), { passive: true });
     window.addEventListener('touchend', e => end(e.changedTouches[0].clientY));
-
     zone.addEventListener('mousedown', e => { start(e.clientY); e.preventDefault(); });
     window.addEventListener('mousemove', e => { if (dragging) move(e.clientY); });
     window.addEventListener('mouseup', e => { if (dragging) end(e.clientY); });
-
-    // Tap handle → toggle peek ↔ mid
     zone.addEventListener('click', () => {
         if (!isMobile()) return;
-        const cur = sheet.classList.contains('peek') ? 'peek' : 'mid';
-        setSheetState(cur === 'peek' ? 'mid' : 'peek');
+        setSheetState(sheet.classList.contains('peek') ? 'mid' : 'peek');
         sheet.style.height = '';
     });
 })();
@@ -395,12 +450,24 @@ function startCountdown(lineKey, stopId) {
 //  BACK BUTTON
 // ═══════════════════════════════════════════════════
 document.getElementById('backBtn').addEventListener('click', () => {
-    if (state.screen === 'arrival') navigate('stops', state.lineKey);
-    else if (state.screen === 'stops') navigate('lines');
+    if (state.screen === 'arrival') navigate('stops', state.municipalityId, state.lineKey);
+    else if (state.screen === 'stops') navigate('lines', state.municipalityId);
+    else if (state.screen === 'lines') navigate('municipalities');
 });
 
 // ═══════════════════════════════════════════════════
-//  BOOT
+//  BOOT – fetch data.json dynamically
 // ═══════════════════════════════════════════════════
-document.getElementById('sheetTitle').style.color = '';
-navigate('lines');
+async function init() {
+    try {
+        const response = await fetch('data.json');
+        MUNICIPALITIES_DATA = await response.json();
+        navigate('municipalities');
+    } catch (e) {
+        console.error('Σφάλμα φόρτωσης δεδομένων:', e);
+        document.getElementById('sheetBody').innerHTML =
+            `<p style="color:red;padding:20px;">Σφάλμα φόρτωσης δεδομένων. Βεβαιωθείτε ότι εκτελείτε την εφαρμογή από έναν τοπικό server.</p>`;
+    }
+}
+
+init();
