@@ -58,6 +58,8 @@
                     <div class="sheet-title" id="sheetTitle">Επίλεξε Δήμο</div>
                     <div class="sheet-subtitle" id="sheetSub">Δημοτική Συγκοινωνία</div>
                 </div>
+                <button class="search-btn" id="searchBtn" aria-label="Αναζήτηση"
+                    title="Αναζήτηση γραμμής / στάσης">🔍</button>
                 <button class="map-toggle-btn" id="mapToggleBtn" aria-label="Εναλλαγή χάρτη"
                     title="Εμφάνιση / Απόκρυψη χάρτη">🗺️</button>
                 <div class="logo-icon">🚌</div>
@@ -65,6 +67,16 @@
 
             <!-- Scrollable body -->
             <div class="sheet-body" id="sheetBody"></div>
+        </div>
+
+        <!-- Search Overlay -->
+        <div class="search-overlay" id="searchOverlay">
+            <div class="search-bar">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="Αναζήτηση γραμμής ή στάσης..." autocomplete="off" />
+                <button class="search-close-btn" id="searchCloseBtn" aria-label="Κλείσιμο">×</button>
+            </div>
+            <div class="search-results" id="searchResults"></div>
         </div>
     </div>
 

@@ -51,17 +51,22 @@ function drawMunicipalitiesOverview() {
     if (coords.length > 0) map.fitBounds(L.latLngBounds(coords), { padding: [50, 50] });
 }
 
-// Draw all lines of a municipality faintly
+// Draw all lines of a municipality faintly — stops clickable to open that line
 function drawAllLinesFaint(municipalityId) {
     clearMapLayers();
     const mun = MUNICIPALITIES_DATA[municipalityId];
     if (!mun || !mun.lines) return;
-    Object.values(mun.lines).forEach(line => {
+    Object.entries(mun.lines).forEach(([lineKey, line]) => {
         if (!line.stops || line.stops.length === 0) return;
         const coords = line.stops.map(s => s.coords);
         addToMap(L.polyline(coords, { color: line.color, weight: 2.5, opacity: 0.25, dashArray: '7,6' }));
         line.stops.forEach(s => {
-            addToMap(L.circleMarker(s.coords, { radius: 4, color: '#fff', fillColor: line.color, fillOpacity: 0.45, weight: 1.5 }));
+            const marker = L.circleMarker(s.coords, { radius: 4, color: '#fff', fillColor: line.color, fillOpacity: 0.45, weight: 1.5 });
+            marker.bindTooltip(`<b>${s.name}</b><br><span style="font-size:11px;color:#666">${line.name}</span>`, { className: 'leaflet-tooltip-custom' });
+            marker.on('click', () => navigate('stops', municipalityId, lineKey));
+            marker.on('mouseover', function () { this.setStyle({ fillOpacity: 1, radius: 6 }); });
+            marker.on('mouseout', function () { this.setStyle({ fillOpacity: 0.45, radius: 4 }); });
+            addToMap(marker);
         });
     });
 }
@@ -83,12 +88,23 @@ function drawLine(municipalityId, lineKey, selectedStopId = null) {
         const r = isSelected ? 11 : (isTerminal ? 8 : 6);
         const marker = L.circleMarker(s.coords, {
             radius: r,
-            color: '#fff', fillColor: isSelected ? '#fff' : line.color,
-            fillOpacity: 1,
+            color: '#fff', fillColor: isSelected ? line.color : line.color,
+            fillOpacity: isSelected ? 1 : 0.85,
             weight: isSelected ? 3 : 2,
             zIndexOffset: isSelected ? 1000 : 0,
-        }).addTo(map);
+        });
         marker.bindTooltip(`<b>${s.name}</b>`, { className: 'leaflet-tooltip-custom' });
+        // Click navigates to arrival screen for this stop
+        marker.on('click', () => navigate('arrival', municipalityId, lineKey, s.id));
+        // Hover feedback
+        marker.on('mouseover', function () {
+            this.setStyle({ radius: r + 3, weight: 3 });
+            this.openTooltip();
+        });
+        marker.on('mouseout', function () {
+            this.setStyle({ radius: r, weight: isSelected ? 3 : 2 });
+        });
+        marker.addTo(map);
         mapLayers.push(marker);
 
         if (isSelected) {
@@ -110,11 +126,20 @@ function drawLine(municipalityId, lineKey, selectedStopId = null) {
 // ═══════════════════════════════════════════════════
 //  HELPERS
 // ═══════════════════════════════════════════════════
-function minutesUntil(freq) {
-    if (!freq) return 15; // Default if not provided
+// stopIndex: position of this stop along the route (0-based)
+// stopCount: total stops in the route
+// Returns minutes until the bus reaches this specific stop
+function minutesUntil(freq, stopIndex = 0, stopCount = 1) {
+    if (!freq) freq = 15;
     const now = new Date();
-    const rem = freq - (now.getMinutes() % freq);
-    return rem === freq ? 0 : rem;
+    // base minutes until next departure from first stop
+    const base = freq - (now.getMinutes() % freq);
+    const baseMin = base === freq ? 0 : base;
+    // average time between consecutive stops (assume full route takes ~0.7 * freq)
+    const avgInterval = stopCount > 1 ? Math.round((freq * 0.7) / (stopCount - 1)) : 0;
+    const offset = stopIndex * avgInterval;
+    const total = (baseMin + offset) % freq;
+    return total;
 }
 
 function buildSchedule(line, nowMins) {
@@ -178,7 +203,7 @@ document.getElementById('mapToggleBtn').addEventListener('click', toggleMap);
 async function navigate(screen, municipalityId = state.municipalityId, lineKey = state.lineKey, stopId = state.stopId) {
     state = { screen, municipalityId, lineKey, stopId };
     if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-    
+
     // Data fetching for specific screens
     if (screen === 'lines' && municipalityId && (!MUNICIPALITIES_DATA[municipalityId].lines || Object.keys(MUNICIPALITIES_DATA[municipalityId].lines).length === 0)) {
         await fetchLines(municipalityId);
@@ -188,7 +213,7 @@ async function navigate(screen, municipalityId = state.municipalityId, lineKey =
             await fetchRouteDetails(municipalityId, lineKey, line.id);
         }
     }
-    
+
     render();
 }
 
@@ -243,7 +268,7 @@ function render() {
         drawLine(municipalityId, lineKey, stopId);
         fab.style.display = 'none';
         body.innerHTML = buildArrivalScreen(municipalityId, lineKey, stopId);
-        startCountdown(municipalityId, lineKey);
+        startCountdown(municipalityId, lineKey, stopId);
         map.panTo(stop.coords, { animate: true });
     }
 
@@ -280,7 +305,7 @@ function buildLinesScreen(municipalityId) {
     Object.entries(lines).forEach(([key, line]) => {
         const nextBus = minutesUntil(line.freq);
         const rgb = hexToRgb(line.color);
-        const routeTag = (line.stops && line.stops.length > 1) 
+        const routeTag = (line.stops && line.stops.length > 1)
             ? `${line.stops[0].name} → ${line.stops[line.stops.length - 1].name}`
             : (line.status === 'active' ? 'Ενεργή Γραμμή' : 'Μη διαθέσιμη');
 
@@ -292,9 +317,9 @@ function buildLinesScreen(municipalityId) {
               <div class="line-tag">${routeTag}</div>
             </div>
             <div class="line-meta">
-              <div class="line-freq">${nextBus === 0 ? 'Τώρα' : nextBus + ' λεπτά'}</div>
+              <div class="line-freq">${nextBus === 0 ? 'Τώρα' : nextBus === 1 ? '1 λεπτό' : nextBus + ' λεπτά'}</div>
               <div class="line-freq-lbl">επόμενο</div>
-              <div class="line-stops-count">${line.stops?.length || 0} στάσεις</div>
+              <div class="line-stops-count">${line.stops?.length > 0 ? line.stops.length + ' στάσεις' : (line.totalStops ? line.totalStops + ' στάσεις' : '—')}</div>
             </div>
             <div class="chevron">›</div>
           </div>`;
@@ -319,17 +344,18 @@ function renderLinesFab(municipalityId) {
 // ─────────────── STOPS SCREEN ───────────────
 function buildStopsScreen(municipalityId, lineKey) {
     const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
-    const nextBus = minutesUntil(line.freq);
+    const stopCount = line.stops?.length || 1;
     let html = `
-        <div class="section-label" style="color:${line.color}">Στάσεις • ${line.stops?.length || 0} συνολικά</div>
+        <div class="section-label" style="color:${line.color}">Στάσεις • ${stopCount} συνολικά</div>
         <div class="stop-list" style="--lc:${line.color}">`;
-    
+
     if (line.stops) {
         line.stops.forEach((s, i) => {
             const isFirst = i === 0;
             const isLast = i === line.stops.length - 1;
             const badge = isFirst ? `<span class="stop-badge start">Αφετηρία</span>`
                 : isLast ? `<span class="stop-badge end">Τέρμα</span>` : '';
+            const nextBus = minutesUntil(line.freq, i, stopCount);
             html += `
               <div class="stop-row ${isFirst || isLast ? 'terminal' : ''}" onclick="navigate('arrival', '${municipalityId}', '${lineKey}', '${s.id}')">
                 <div class="stop-dot-wrap"><div class="stop-dot"></div></div>
@@ -366,10 +392,12 @@ function renderStopsFab(municipalityId, lineKey) {
 function buildArrivalScreen(municipalityId, lineKey, stopId) {
     const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
     const stop = line.stops.find(s => s.id === stopId);
+    const stopIndex = line.stops.findIndex(s => s.id === stopId);
+    const stopCount = line.stops.length;
     const now = new Date();
     const nowMins = now.getHours() * 60 + now.getMinutes();
     const times = buildSchedule(line, nowMins);
-    const nextBus = minutesUntil(line.freq);
+    const nextBus = minutesUntil(line.freq, stopIndex, stopCount);
 
     const arrivalHTML = nextBus === 0
         ? `<div class="arrival-now"><div class="pulse-dot"></div> Φτάνει τώρα!</div>`
@@ -380,9 +408,8 @@ function buildArrivalScreen(municipalityId, lineKey, stopId) {
            <div class="arrival-label" id="cdLabel">μέχρι το επόμενο λεωφορείο</div>`;
 
     const nextThree = [];
-    let m = minutesUntil(line.freq);
     for (let i = 0; i < 3; i++) {
-        const t = new Date(now.getTime() + (m + i * (line.freq || 20)) * 60000);
+        const t = new Date(now.getTime() + (nextBus + i * (line.freq || 20)) * 60000);
         nextThree.push(t.toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' }));
     }
 
@@ -417,10 +444,12 @@ function buildArrivalScreen(municipalityId, lineKey, stopId) {
         <div class="schedule-grid">${chipsHTML}</div>`;
 }
 
-function startCountdown(municipalityId, lineKey) {
+function startCountdown(municipalityId, lineKey, stopId) {
     const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
+    const stopIndex = line.stops.findIndex(s => s.id === stopId);
+    const stopCount = line.stops.length;
     countdownInterval = setInterval(() => {
-        const mins = minutesUntil(line.freq);
+        const mins = minutesUntil(line.freq, stopIndex, stopCount);
         const numEl = document.getElementById('cdNum');
         const lblEl = document.getElementById('cdLabel');
         if (!numEl) { clearInterval(countdownInterval); return; }
@@ -498,7 +527,7 @@ async function fetchMunicipalities() {
     try {
         const response = await fetch(`${API_BASE_URL}/transport-api`);
         const data = await response.json();
-        
+
         // Convert API format to app format
         const formatted = {};
         data.municipalities.forEach(m => {
@@ -508,7 +537,7 @@ async function fetchMunicipalities() {
                 region: m.region,
                 totalRoutes: m.totalRoutes,
                 // Center will be updated when we get lines or use a default
-                center: m.id === 'athens' ? [37.9838, 23.7275] : [37.935, 23.715], 
+                center: m.id === 'athens' ? [37.9838, 23.7275] : [37.935, 23.715],
                 lines: {}
             };
         });
@@ -523,20 +552,21 @@ async function fetchLines(municipalityId) {
     try {
         const response = await fetch(`${API_BASE_URL}/transport-api?municipality=${municipalityId}`);
         const data = await response.json();
-        
+
         const mun = MUNICIPALITIES_DATA[municipalityId];
         mun.lines = {};
-        
+
         data.routes.forEach(r => {
             // Using r.id as key for state, but keeping code for display
             mun.lines[r.id] = {
                 id: r.id,
                 code: r.code,
                 name: r.name,
-                color: r.status === 'delayed' ? '#ef4444' : '#3b7ef6', // API doesn't provide color
+                color: r.status === 'delayed' ? '#ef4444' : '#3b7ef6',
                 freq: r.frequency_minutes || 20,
                 status: r.status,
-                hours: { start: "06:00", end: "22:00" }, // API doesn't provide hours
+                totalStops: r.total_stops || r.stops_count || null,
+                hours: { start: "06:00", end: "22:00" },
                 stops: []
             };
         });
@@ -549,7 +579,7 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
     try {
         const response = await fetch(`${API_BASE_URL}/transport-api?route=${routeId}`);
         const data = await response.json();
-        
+
         const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
         line.stops = data.stops.map(s => ({
             id: s.id,
@@ -557,7 +587,7 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
             coords: [s.latitude, s.longitude],
             terminal: s.is_terminal
         }));
-        
+
         // Update municipality center based on first stop if not already set meaningfully
         if (line.stops.length > 0) {
             MUNICIPALITIES_DATA[municipalityId].center = line.stops[0].coords;
@@ -566,6 +596,91 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
         console.error(`Error fetching route details for ${routeId}:`, e);
     }
 }
+
+// ═══════════════════════════════════════════════════
+//  GLOBAL SEARCH
+// ═══════════════════════════════════════════════════
+function buildSearchResults(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) return '';
+
+    let lineResults = [];
+    let stopResults = [];
+
+    Object.values(MUNICIPALITIES_DATA).forEach(mun => {
+        if (!mun.lines) return;
+        Object.entries(mun.lines).forEach(([lineKey, line]) => {
+            const nameMatch = line.name?.toLowerCase().includes(q);
+            const codeMatch = line.code?.toLowerCase().includes(q);
+            if (nameMatch || codeMatch) {
+                lineResults.push({ mun, lineKey, line });
+            }
+            if (line.stops) {
+                line.stops.forEach(s => {
+                    if (s.name?.toLowerCase().includes(q)) {
+                        stopResults.push({ mun, lineKey, line, stop: s });
+                    }
+                });
+            }
+        });
+    });
+
+    if (lineResults.length === 0 && stopResults.length === 0) {
+        return `<div class="search-empty">Δεν βρέθηκαν αποτελέσματα για «${query}»</div>`;
+    }
+
+    let html = '';
+    if (lineResults.length > 0) {
+        html += `<div class="section-label">Γραμμές</div>`;
+        lineResults.forEach(({ mun, lineKey, line }) => {
+            const rgb = hexToRgb(line.color);
+            html += `
+              <div class="line-card" style="--lc:${line.color}" onclick="navigate('stops','${mun.id}','${lineKey}'); document.getElementById('searchInput').value=''; hideSearch();">
+                <div class="line-badge" style="background:rgba(${rgb},0.15);color:${line.color}">${line.code || lineKey}</div>
+                <div class="line-info">
+                  <div class="line-name">${line.name}</div>
+                  <div class="line-tag">${mun.name}</div>
+                </div>
+                <div class="chevron">›</div>
+              </div>`;
+        });
+    }
+    if (stopResults.length > 0) {
+        html += `<div class="section-label">Στάσεις</div>`;
+        stopResults.forEach(({ mun, lineKey, line, stop }) => {
+            html += `
+              <div class="line-card" style="--lc:${line.color}" onclick="navigate('arrival','${mun.id}','${lineKey}','${stop.id}'); document.getElementById('searchInput').value=''; hideSearch();">
+                <div class="line-badge" style="background:rgba(${hexToRgb(line.color)},0.15);color:${line.color}">🚏</div>
+                <div class="line-info">
+                  <div class="line-name">${stop.name}</div>
+                  <div class="line-tag">${line.name} · ${mun.name}</div>
+                </div>
+                <div class="chevron">›</div>
+              </div>`;
+        });
+    }
+    return html;
+}
+
+function showSearch() {
+    document.getElementById('searchOverlay').classList.add('visible');
+    document.getElementById('searchInput').focus();
+}
+
+function hideSearch() {
+    document.getElementById('searchOverlay').classList.remove('visible');
+    document.getElementById('searchInput').value = '';
+    document.getElementById('searchResults').innerHTML = '';
+}
+
+document.getElementById('searchBtn').addEventListener('click', showSearch);
+document.getElementById('searchCloseBtn').addEventListener('click', hideSearch);
+document.getElementById('searchInput').addEventListener('input', function () {
+    document.getElementById('searchResults').innerHTML = buildSearchResults(this.value);
+});
+document.getElementById('searchInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') hideSearch();
+});
 
 // ═══════════════════════════════════════════════════
 //  BOOT
