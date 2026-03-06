@@ -195,7 +195,6 @@ function toggleMap() {
     }
 }
 
-document.getElementById('mapToggleBtn').addEventListener('click', toggleMap);
 
 // ═══════════════════════════════════════════════════
 //  NAVIGATION
@@ -662,18 +661,47 @@ function buildSearchResults(query) {
     return html;
 }
 
+function setNavTab(tab) {
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    const el = document.getElementById(
+        tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : 'navMap'
+    );
+    if (el) el.classList.add('active');
+}
+
+function navTo(tab) {
+    if (tab === 'arrivals') {
+        hideSearch();
+        // If map is taking all screen on mobile, just ensure sheet is visible
+        setNavTab('arrivals');
+    } else if (tab === 'search') {
+        showSearch();
+        setNavTab('search');
+    } else if (tab === 'map') {
+        hideSearch();
+        // Toggle map on if it's off; keep it on if already on
+        if (!mapVisible) toggleMap();
+        setNavTab('map');
+    }
+}
+
 function showSearch() {
     document.getElementById('searchOverlay').classList.add('visible');
     document.getElementById('searchInput').focus();
+    setNavTab('search');
 }
 
 function hideSearch() {
     document.getElementById('searchOverlay').classList.remove('visible');
     document.getElementById('searchInput').value = '';
     document.getElementById('searchResults').innerHTML = '';
+    // Restore arrivals tab if search was the active one
+    const searchTab = document.getElementById('navSearch');
+    if (searchTab && searchTab.classList.contains('active')) {
+        setNavTab('arrivals');
+    }
 }
 
-document.getElementById('searchBtn').addEventListener('click', showSearch);
 document.getElementById('searchCloseBtn').addEventListener('click', hideSearch);
 document.getElementById('searchInput').addEventListener('input', function () {
     document.getElementById('searchResults').innerHTML = buildSearchResults(this.value);

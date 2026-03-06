@@ -58,10 +58,6 @@
                     <div class="sheet-title" id="sheetTitle">Επίλεξε Δήμο</div>
                     <div class="sheet-subtitle" id="sheetSub">Δημοτική Συγκοινωνία</div>
                 </div>
-                <button class="search-btn" id="searchBtn" aria-label="Αναζήτηση"
-                    title="Αναζήτηση γραμμής / στάσης">🔍</button>
-                <button class="map-toggle-btn" id="mapToggleBtn" aria-label="Εναλλαγή χάρτη"
-                    title="Εμφάνιση / Απόκρυψη χάρτη">🗺️</button>
                 <div class="logo-icon">🚌</div>
             </div>
 
@@ -78,6 +74,22 @@
             </div>
             <div class="search-results" id="searchResults"></div>
         </div>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav" id="bottomNav">
+            <button class="nav-tab active" id="navArrivals" onclick="navTo('arrivals')">
+                <span class="nav-icon">🚌</span>
+                <span class="nav-label">Αφίξεις</span>
+            </button>
+            <button class="nav-tab" id="navSearch" onclick="navTo('search')">
+                <span class="nav-icon">🔍</span>
+                <span class="nav-label">Αναζήτηση</span>
+            </button>
+            <button class="nav-tab" id="navMap" onclick="navTo('map')">
+                <span class="nav-icon">🗺️</span>
+                <span class="nav-label">Χάρτης</span>
+            </button>
+        </nav>
     </div>
 
     <script src="app.js"></script>
