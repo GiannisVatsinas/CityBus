@@ -5,7 +5,9 @@ const API_BASE_URL = "https://rldqhflxdvyzjcjhcole.supabase.co/functions/v1";
 let MUNICIPALITIES_DATA = {};
 let state = { screen: 'municipalities', municipalityId: null, lineKey: null, stopId: null };
 let mapLayers = [];
+let busMarkerLayers = []; // separate layer group for live bus markers
 let countdownInterval = null;
+let busRefreshInterval = null; // interval for live bus position refresh
 let mapVisible = false; // map is hidden by default
 
 
@@ -34,7 +36,13 @@ function clearMapLayers() {
     mapLayers = [];
 }
 
+function clearBusMarkers() {
+    busMarkerLayers.forEach(l => map.removeLayer(l));
+    busMarkerLayers = [];
+}
+
 function addToMap(layer) { layer.addTo(map); mapLayers.push(layer); }
+function addBusMarker(layer) { layer.addTo(map); busMarkerLayers.push(layer); }
 
 // Show all municipality center markers on the home screen
 function drawMunicipalitiesOverview() {
@@ -42,9 +50,23 @@ function drawMunicipalitiesOverview() {
     Object.values(MUNICIPALITIES_DATA).forEach(mun => {
         if (!mun.center) return;
         const marker = L.circleMarker(mun.center, {
-            radius: 9, color: '#fff', fillColor: '#3b7ef6', fillOpacity: 1, weight: 2.5
+            radius: 11, color: '#fff', fillColor: '#3b7ef6', fillOpacity: 1, weight: 2.5,
+            interactive: true
         }).addTo(map);
-        marker.bindTooltip(`<b>${mun.name}</b>`, { className: 'leaflet-tooltip-custom', permanent: true, direction: 'top' });
+        // Always-visible name label
+        marker.bindTooltip(`<b>${mun.name}</b>`,
+            { className: 'leaflet-tooltip-custom', permanent: true, direction: 'top', offset: [0, -4] });
+        // Click → navigate to lines for this municipality
+        marker.on('click', () => navigate('lines', mun.id));
+        // Hover: grow + show hint
+        marker.on('mouseover', function () {
+            this.setStyle({ radius: 15, fillColor: '#2563eb' });
+            this.setTooltipContent(`<b>${mun.name}</b><br><span style="font-size:11px;color:#3b7ef6">Πάτα για επιλογή →</span>`);
+        });
+        marker.on('mouseout', function () {
+            this.setStyle({ radius: 11, fillColor: '#3b7ef6' });
+            this.setTooltipContent(`<b>${mun.name}</b>`);
+        });
         mapLayers.push(marker);
     });
     const coords = Object.values(MUNICIPALITIES_DATA).filter(m => m.center).map(m => m.center);
@@ -142,6 +164,178 @@ function minutesUntil(freq, stopIndex = 0, stopCount = 1) {
     return total;
 }
 
+// ═══════════════════════════════════════════════════
+//  LIVE BUS POSITIONS (timetable simulation)
+// ═══════════════════════════════════════════════════
+
+/**
+ * For a given line, compute the interpolated lat/lng of each active bus
+ * based on the current time and the timetable.
+ * Returns an array of { lat, lng, nextStopName, minsToNext } objects.
+ */
+function computeBusPositions(line) {
+    if (!line.stops || line.stops.length < 2) return [];
+    const stops = line.stops;
+    const freq = line.freq || 20;
+
+    const now = new Date();
+    const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+
+    // Use real timetable from the first stop if available
+    const firstStopTimes = stops[0]?.departureTimes;
+    const useRealTimetable = firstStopTimes && firstStopTimes.length > 0;
+
+    // Full route travel time: estimate as time from first to last stop departure
+    // If we have real times, use the diff between stop[0] and stop[last]; else use 70% of freq
+    let routeDurationMin;
+    let stopTimes; // departure time (mins from midnight) for each stop index
+
+    if (useRealTimetable) {
+        // Build per-stop departure times from real timetable
+        // Each stop's timetable lists its own departure times
+        stopTimes = stops.map(s => s.departureTimes || []);
+        // Duration = avg difference between last stop time and first stop time for same trip
+        // We estimate departure time per stop relative to the first stop
+        // (since each stop has its own departure times)
+        const lastStopTimes = stops[stops.length - 1]?.departureTimes || [];
+        if (lastStopTimes.length > 0 && firstStopTimes.length > 0) {
+            routeDurationMin = Math.max(5, (lastStopTimes[0] - firstStopTimes[0]));
+        } else {
+            routeDurationMin = freq * 0.7;
+        }
+    } else {
+        routeDurationMin = freq * 0.7;
+        stopTimes = stops.map((_, i) => {
+            // Generate synthetic departure times for each stop
+            const startStr = line.hours?.start || '06:00';
+            const endStr = line.hours?.end || '22:00';
+            const [sh, sm] = startStr.split(':').map(Number);
+            const [eh, em] = endStr.split(':').map(Number);
+            const startMin = sh * 60 + sm;
+            const endMin = eh * 60 + em;
+            const stopOffset = i * (routeDurationMin / (stops.length - 1));
+            const times = [];
+            for (let t = startMin + stopOffset; t <= endMin + stopOffset; t += freq) {
+                times.push(t);
+            }
+            return times;
+        });
+    }
+
+    const positions = [];
+
+    // For each departure from stop 0, find if a bus is currently between any two consecutive stops
+    const departures = stopTimes[0]?.length > 0 ? stopTimes[0] : [];
+    if (departures.length === 0) return positions;
+
+    departures.forEach(dep0 => {
+        // For each segment between consecutive stops, check if the bus is in that segment
+        for (let i = 0; i < stops.length - 1; i++) {
+            const from = stops[i];
+            const to = stops[i + 1];
+
+            // Get departure time at stop i and stop i+1 for this trip
+            // Use the real per-stop times if available; otherwise estimate
+            let depAtI, depAtI1;
+
+            if (useRealTimetable && stopTimes[i]?.length > 0 && stopTimes[i + 1]?.length > 0) {
+                // Find the closest departure at stop i that matches this trip (same offset as dep0)
+                const offset0 = dep0 - stopTimes[0][0]; // offset from earliest trip
+                depAtI = stopTimes[i][0] + offset0;
+                depAtI1 = stopTimes[i + 1][0] + offset0;
+            } else {
+                const segDur = routeDurationMin / (stops.length - 1);
+                depAtI = dep0 + i * segDur;
+                depAtI1 = dep0 + (i + 1) * segDur;
+            }
+
+            if (nowMins >= depAtI && nowMins < depAtI1) {
+                const progress = (nowMins - depAtI) / (depAtI1 - depAtI);
+                const lat = from.coords[0] + (to.coords[0] - from.coords[0]) * progress;
+                const lng = from.coords[1] + (to.coords[1] - from.coords[1]) * progress;
+                const minsToNext = Math.max(0, Math.round((depAtI1 - nowMins)));
+                positions.push({ lat, lng, nextStopName: to.name, minsToNext });
+                break; // found the segment for this trip
+            }
+        }
+    });
+
+    return positions;
+}
+
+/** Create a custom pulsing bus icon (DivIcon). size: 'normal' | 'large' */
+function createBusIcon(color, size) {
+    const c = color || '#3b7ef6';
+    const dim = size === 'large' ? 40 : 32;
+    const font = size === 'large' ? 19 : 15;
+    return L.divIcon({
+        className: '',
+        iconSize: [dim, dim],
+        iconAnchor: [dim / 2, dim / 2],
+        html: `
+          <div style="
+            width:${dim}px;height:${dim}px;
+            background:${c};
+            border-radius:50%;
+            border:${size === 'large' ? 3 : 2.5}px solid #fff;
+            box-shadow:0 2px 10px ${c}88;
+            display:flex;align-items:center;justify-content:center;
+            font-size:${font}px;
+            animation:busPulse 2s ease-in-out infinite;
+          ">🚌</div>`,
+    });
+}
+
+/**
+ * Draw ALL active buses from ALL loaded lines (across all municipalities).
+ * selectedLineKey (optional): that line's bus will be displayed larger.
+ */
+function drawAllActiveBuses(selectedMunId, selectedLineKey) {
+    clearBusMarkers();
+    Object.entries(MUNICIPALITIES_DATA).forEach(([munId, mun]) => {
+        if (!mun.lines) return;
+        Object.entries(mun.lines).forEach(([lineKey, line]) => {
+            const positions = computeBusPositions(line);
+            const isSelected = munId === selectedMunId && lineKey === selectedLineKey;
+            positions.forEach(pos => {
+                const icon = createBusIcon(line.color, isSelected ? 'large' : 'normal');
+                const marker = L.marker([pos.lat, pos.lng], { icon, zIndexOffset: isSelected ? 3000 : 2000 });
+                const plateInfo = line.busPlate ? `<br><span style="color:#888;font-size:11px">🪪 ${line.busPlate}</span>` : '';
+                const arrivalText = pos.minsToNext === 0
+                    ? 'Φτάνει στη στάση!'
+                    : `→ ${pos.nextStopName} σε ${pos.minsToNext} λεπτά`;
+                const label = `<b>${line.code || lineKey}</b> · ${line.name}${plateInfo}<br>${arrivalText}`;
+                marker.bindTooltip(label, { className: 'leaflet-tooltip-custom', direction: 'top', offset: [0, -(isSelected ? 17 : 14)] });
+                marker.on('click', () => navigate('stops', munId, lineKey));
+                addBusMarker(marker);
+            });
+        });
+    });
+}
+
+/**
+ * Background-fetch stop details for ALL lines of a municipality so buses can appear.
+ * Non-blocking — failures are silently ignored.
+ */
+async function prefetchAllRoutes(municipalityId) {
+    const mun = MUNICIPALITIES_DATA[municipalityId];
+    if (!mun || !mun.lines) return;
+    const promises = Object.entries(mun.lines)
+        .filter(([key, line]) => !line.stops || line.stops.length === 0)
+        .map(([key, line]) => fetchRouteDetails(municipalityId, key, line.id).catch(() => { }));
+    await Promise.all(promises);
+}
+
+/** Start auto-refresh of bus markers every 30 seconds */
+function startBusRefresh(refreshFn) {
+    if (busRefreshInterval) clearInterval(busRefreshInterval);
+    busRefreshInterval = setInterval(refreshFn, 30000);
+}
+
+function stopBusRefresh() {
+    if (busRefreshInterval) { clearInterval(busRefreshInterval); busRefreshInterval = null; }
+}
+
 function buildSchedule(line, nowMins) {
     const startStr = line.hours?.start || "06:00";
     const endStr = line.hours?.end || "22:00";
@@ -180,9 +374,9 @@ function toggleMap() {
             // Re-render map layers after map becomes visible
             const { screen, municipalityId, lineKey, stopId } = state;
             if (screen === 'municipalities') drawMunicipalitiesOverview();
-            else if (screen === 'lines') drawAllLinesFaint(municipalityId);
-            else if (screen === 'stops') drawLine(municipalityId, lineKey);
-            else if (screen === 'arrival') drawLine(municipalityId, lineKey, stopId);
+            else if (screen === 'lines') { drawAllLinesFaint(municipalityId); drawAllActiveBuses(municipalityId, null); }
+            else if (screen === 'stops') { drawLine(municipalityId, lineKey); drawAllActiveBuses(municipalityId, lineKey); }
+            else if (screen === 'arrival') { drawLine(municipalityId, lineKey, stopId); drawAllActiveBuses(municipalityId, lineKey); }
             setSheetState('mid');
         }, 50);
     } else {
@@ -202,6 +396,7 @@ function toggleMap() {
 async function navigate(screen, municipalityId = state.municipalityId, lineKey = state.lineKey, stopId = state.stopId) {
     state = { screen, municipalityId, lineKey, stopId };
     if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    stopBusRefresh();
 
     // Data fetching for specific screens
     if (screen === 'lines' && municipalityId && (!MUNICIPALITIES_DATA[municipalityId].lines || Object.keys(MUNICIPALITIES_DATA[municipalityId].lines).length === 0)) {
@@ -244,6 +439,14 @@ function render() {
         renderLinesFab(municipalityId);
         body.innerHTML = buildLinesScreen(municipalityId);
         if (mun.center) map.flyTo(mun.center, 14, { animate: true, duration: 1.5 });
+        // Prefetch all routes in background so all buses appear
+        prefetchAllRoutes(municipalityId).then(() => {
+            drawAllActiveBuses(municipalityId, null);
+            startBusRefresh(() => drawAllActiveBuses(municipalityId, null));
+        });
+        // Also draw immediately any already-loaded buses
+        drawAllActiveBuses(municipalityId, null);
+        startBusRefresh(() => drawAllActiveBuses(municipalityId, null));
 
     } else if (screen === 'stops') {
         const mun = MUNICIPALITIES_DATA[municipalityId];
@@ -255,6 +458,9 @@ function render() {
         drawLine(municipalityId, lineKey);
         renderStopsFab(municipalityId, lineKey);
         body.innerHTML = buildStopsScreen(municipalityId, lineKey);
+        // Show ALL buses — selected line's bus is highlighted (larger)
+        drawAllActiveBuses(municipalityId, lineKey);
+        startBusRefresh(() => drawAllActiveBuses(municipalityId, lineKey));
 
     } else if (screen === 'arrival') {
         const mun = MUNICIPALITIES_DATA[municipalityId];
@@ -269,6 +475,9 @@ function render() {
         body.innerHTML = buildArrivalScreen(municipalityId, lineKey, stopId);
         startCountdown(municipalityId, lineKey, stopId);
         map.panTo(stop.coords, { animate: true });
+        // Show ALL buses — selected line's bus is highlighted
+        drawAllActiveBuses(municipalityId, lineKey);
+        startBusRefresh(() => drawAllActiveBuses(municipalityId, lineKey));
     }
 
     setSheetState(mapVisible ? 'mid' : 'full');
@@ -580,11 +789,22 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
         const data = await response.json();
 
         const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
+        // Save bus_plate from route if available
+        if (data.route?.bus_plate) line.busPlate = data.route.bus_plate;
+
         line.stops = data.stops.map(s => ({
             id: s.id,
             name: s.name,
             coords: [s.latitude, s.longitude],
-            terminal: s.is_terminal
+            terminal: s.is_terminal,
+            // Store weekday departure times for timetable-based simulation
+            departureTimes: (s.timetable || [])
+                .filter(t => t.day_type === 'weekday')
+                .map(t => {
+                    const [h, m] = t.departure_time.split(':').map(Number);
+                    return h * 60 + m;
+                })
+                .sort((a, b) => a - b)
         }));
 
         // Update municipality center based on first stop if not already set meaningfully
