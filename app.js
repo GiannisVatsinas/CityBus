@@ -890,16 +890,27 @@ function setNavTab(tab) {
 }
 
 function navTo(tab) {
+    const tabId = tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : 'navMap';
+    const isAlreadyActive = document.getElementById(tabId)?.classList.contains('active');
+
+    // Tap on already-active tab → reset to home screen
+    if (isAlreadyActive) {
+        hideSearch();
+        if (mapVisible) toggleMap(); // hide map, let sheet fill screen
+        navigate('municipalities');
+        setNavTab('arrivals');
+        return;
+    }
+
+    // Normal tab switch
     if (tab === 'arrivals') {
         hideSearch();
-        // If map is taking all screen on mobile, just ensure sheet is visible
         setNavTab('arrivals');
     } else if (tab === 'search') {
         showSearch();
         setNavTab('search');
     } else if (tab === 'map') {
         hideSearch();
-        // Toggle map on if it's off; keep it on if already on
         if (!mapVisible) toggleMap();
         setNavTab('map');
     }
@@ -912,12 +923,14 @@ function showSearch() {
 }
 
 function hideSearch() {
+    const searchTab = document.getElementById('navSearch');
+    const wasActive = searchTab && searchTab.classList.contains('active');
     document.getElementById('searchOverlay').classList.remove('visible');
     document.getElementById('searchInput').value = '';
     document.getElementById('searchResults').innerHTML = '';
-    // Restore arrivals tab if search was the active one
-    const searchTab = document.getElementById('navSearch');
-    if (searchTab && searchTab.classList.contains('active')) {
+    if (wasActive) {
+        // Reset navigation to home screen (same as tapping active tab)
+        navigate('municipalities');
         setNavTab('arrivals');
     }
 }
