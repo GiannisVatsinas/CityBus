@@ -285,6 +285,18 @@ body {
     text-overflow: ellipsis;
 }
 
+.line-distance {
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+    margin-top: 5px;
+    display: inline-flex;
+    align-items: center;
+    background: rgba(59, 126, 246, 0.08);
+    padding: 3px 6px;
+    border-radius: 6px;
+}
+
 .line-meta {
     text-align: right;
     flex-shrink: 0;
@@ -305,6 +317,28 @@ body {
     font-size: 11px;
     color: var(--muted);
     margin-top: 3px;
+}
+
+.fav-btn {
+    font-size: 24px;
+    color: var(--border);
+    margin-left: 8px;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s, color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    border-radius: 50%;
+}
+
+.fav-btn.active {
+    color: var(--red);
+}
+
+.fav-btn:active {
+    transform: scale(0.85);
 }
 
 .chevron {

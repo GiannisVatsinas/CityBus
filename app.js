@@ -11,6 +11,48 @@ let busRefreshInterval = null; // interval for live bus position refresh
 let mapVisible = false; // map is hidden by default
 
 
+let favoriteMuns = JSON.parse(localStorage.getItem('favoriteMuns') || '[]');
+let favoriteLines = JSON.parse(localStorage.getItem('favoriteLines') || '[]');
+let favoriteStops = JSON.parse(localStorage.getItem('favoriteStops') || '[]');
+
+window.toggleFavorite = function (munId, e) {
+    if (e) e.stopPropagation(); // prevent card click
+    const idx = favoriteMuns.indexOf(munId);
+    if (idx > -1) {
+        favoriteMuns.splice(idx, 1);
+    } else {
+        favoriteMuns.push(munId);
+    }
+    localStorage.setItem('favoriteMuns', JSON.stringify(favoriteMuns));
+    if (state.screen === 'municipalities' || state.screen === 'favorites') render();
+};
+
+window.toggleFavoriteLine = function (munId, lineKey, e) {
+    if (e) e.stopPropagation(); // prevent card click
+    const id = `${munId}|${lineKey}`;
+    const idx = favoriteLines.indexOf(id);
+    if (idx > -1) {
+        favoriteLines.splice(idx, 1);
+    } else {
+        favoriteLines.push(id);
+    }
+    localStorage.setItem('favoriteLines', JSON.stringify(favoriteLines));
+    if (state.screen === 'lines' || state.screen === 'favorites') render();
+};
+
+window.toggleFavoriteStop = function (munId, lineKey, stopId, e) {
+    if (e) e.stopPropagation(); // prevent card click
+    const id = `${munId}|${lineKey}|${stopId}`;
+    const idx = favoriteStops.indexOf(id);
+    if (idx > -1) {
+        favoriteStops.splice(idx, 1);
+    } else {
+        favoriteStops.push(id);
+    }
+    localStorage.setItem('favoriteStops', JSON.stringify(favoriteStops));
+    if (state.screen === 'stops' || state.screen === 'favorites') render();
+};
+
 // ═══════════════════════════════════════════════════
 //  MAP INIT
 // ═══════════════════════════════════════════════════
@@ -43,6 +85,36 @@ function clearBusMarkers() {
 
 function addToMap(layer) { layer.addTo(map); mapLayers.push(layer); }
 function addBusMarker(layer) { layer.addTo(map); busMarkerLayers.push(layer); }
+
+let userLocation = null;
+
+// ═══════════════════════════════════════════════════
+//  GEOLOCATION & DISTANCE
+// ═══════════════════════════════════════════════════
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in km
+}
+
+function requestUserLocation() {
+    return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+            resolve(null);
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+            () => resolve(null),
+            { timeout: 4000, maximumAge: 60000 }
+        );
+    });
+}
 
 // Show all municipality center markers on the home screen
 function drawMunicipalitiesOverview() {
@@ -429,6 +501,16 @@ function render() {
         fab.style.display = 'none';
         body.innerHTML = buildMunicipalitiesScreen();
 
+    } else if (screen === 'favorites') {
+        backBtn.classList.add('hidden');
+        title.textContent = 'Αγαπημένα';
+        sub.textContent = 'Οι επιλογές σου';
+        title.style.color = '';
+        clearMapLayers();
+        clearBusMarkers();
+        fab.style.display = 'none';
+        body.innerHTML = buildFavoritesScreen();
+
     } else if (screen === 'lines') {
         const mun = MUNICIPALITIES_DATA[municipalityId];
         backBtn.classList.remove('hidden');
@@ -486,9 +568,29 @@ function render() {
 
 // ─────────────── MUNICIPALITIES SCREEN ───────────────
 function buildMunicipalitiesScreen() {
+    console.log("buildMunicipalitiesScreen running. MUNICIPALITIES_DATA length:", Object.keys(MUNICIPALITIES_DATA).length);
     let html = `<div class="section-label">Διαθέσιμοι Δήμοι</div>`;
-    Object.values(MUNICIPALITIES_DATA).forEach(mun => {
+
+    let muns = Object.values(MUNICIPALITIES_DATA).map(mun => {
+        let dist = null;
+        if (userLocation && mun.center) {
+            dist = getDistance(userLocation.lat, userLocation.lng, mun.center[0], mun.center[1]);
+        }
+        return { ...mun, distance: dist };
+    });
+
+    muns.sort((a, b) => {
+        if (a.distance !== null && b.distance !== null) return a.distance - b.distance;
+        if (a.distance !== null) return -1;
+        if (b.distance !== null) return 1;
+        return a.name.localeCompare(b.name, 'el');
+    });
+
+    muns.forEach(mun => {
         const linesCount = mun.totalRoutes || 0;
+        const isFav = favoriteMuns.includes(mun.id);
+        const favIcon = isFav ? '♥' : '♡';
+
         html += `
           <div class="line-card" style="--lc:#3b7ef6" onclick="navigate('lines', '${mun.id}')">
             <div class="line-badge" style="background:rgba(59,126,246,0.12);color:#3b7ef6">🏛</div>
@@ -500,9 +602,126 @@ function buildMunicipalitiesScreen() {
               <div class="line-freq">${linesCount}</div>
               <div class="line-freq-lbl">γραμμές</div>
             </div>
+            <div class="fav-btn ${isFav ? 'active' : ''}" onclick="toggleFavorite('${mun.id}', event)">
+              ${favIcon}
+            </div>
             <div class="chevron">›</div>
           </div>`;
     });
+
+    console.log("buildMunicipalitiesScreen finished. Output length:", html.length);
+    return html;
+}
+
+// ─────────────── FAVORITES SCREEN ───────────────
+function buildFavoritesScreen() {
+    let html = '';
+
+    // Favorites: Muns
+    const favMuns = Object.values(MUNICIPALITIES_DATA).filter(m => favoriteMuns.includes(m.id));
+    if (favMuns.length > 0) {
+        html += `<div class="section-label">Οι Δήμοι μου</div>`;
+        favMuns.forEach(mun => {
+            const linesCount = mun.totalRoutes || 0;
+            html += `
+              <div class="line-card" style="--lc:#3b7ef6" onclick="navigate('lines', '${mun.id}')">
+                <div class="line-badge" style="background:rgba(59,126,246,0.12);color:#3b7ef6">🏛</div>
+                <div class="line-info">
+                  <div class="line-name">${mun.name}</div>
+                  <div class="line-tag">${mun.region || 'Δημοτική Συγκοινωνία'}</div>
+                </div>
+                <div class="line-meta">
+                  <div class="line-freq">${linesCount}</div>
+                  <div class="line-freq-lbl">γραμμές</div>
+                </div>
+                <div class="fav-btn active" onclick="toggleFavorite('${mun.id}', event)">♥</div>
+                <div class="chevron">›</div>
+              </div>`;
+        });
+    }
+
+    // Favorites: Lines
+    let favLinesData = [];
+    Object.values(MUNICIPALITIES_DATA).forEach(mun => {
+        if (!mun.lines) return;
+        Object.entries(mun.lines).forEach(([key, line]) => {
+            const id = `${mun.id}|${key}`;
+            if (favoriteLines.includes(id)) {
+                favLinesData.push({ mun, key, line });
+            }
+        });
+    });
+
+    if (favLinesData.length > 0) {
+        html += `<div class="section-label" style="margin-top: 15px;">Αγαπημένες Γραμμές</div>`;
+        favLinesData.forEach(({ mun, key, line }) => {
+            const rgb = hexToRgb(line.color);
+            const routeTag = (line.stops && line.stops.length > 1) ? `${line.stops[0].name} → ${line.stops[line.stops.length - 1].name}` : 'Ενεργή Γραμμή';
+            const nextBus = minutesUntil(line.freq);
+            html += `
+              <div class="line-card" style="--lc:${line.color}" onclick="navigate('stops', '${mun.id}', '${key}')">
+                <div class="line-badge" style="background:rgba(${rgb},0.15);color:${line.color}">${line.code || key}</div>
+                <div class="line-info">
+                  <div class="line-name">${line.name}</div>
+                  <div class="line-tag">${mun.name} · ${routeTag}</div>
+                </div>
+                <div class="line-meta">
+                  <div class="line-freq">${nextBus === 0 ? 'Τώρα' : nextBus === 1 ? '1 λεπτό' : nextBus + ' λεπτά'}</div>
+                  <div class="line-freq-lbl">επόμενο</div>
+                </div>
+                <div class="fav-btn active" onclick="toggleFavoriteLine('${mun.id}', '${key}', event)">♥</div>
+                <div class="chevron">›</div>
+              </div>`;
+        });
+    }
+
+    // Favorites: Stops
+    let favStopsData = [];
+    Object.values(MUNICIPALITIES_DATA).forEach(mun => {
+        if (!mun.lines) return;
+        Object.entries(mun.lines).forEach(([key, line]) => {
+            if (!line.stops) return;
+            line.stops.forEach((s, idx) => {
+                const id = `${mun.id}|${key}|${s.id}`;
+                if (favoriteStops.includes(id)) {
+                    favStopsData.push({ mun, key, line, stop: s, idx, totalStops: line.stops.length });
+                }
+            });
+        });
+    });
+
+    if (favStopsData.length > 0) {
+        html += `<div class="section-label" style="margin-top: 15px;">Αγαπημένες Στάσεις</div>`;
+        favStopsData.forEach(({ mun, key, line, stop, idx, totalStops }) => {
+            const isFirst = idx === 0;
+            const isLast = idx === totalStops - 1;
+            const badge = isFirst ? `<span class="stop-badge start">Αφετηρία</span>` : isLast ? `<span class="stop-badge end">Τέρμα</span>` : '';
+            const nextBus = minutesUntil(line.freq, idx, totalStops);
+
+            html += `
+              <div class="line-card" style="--lc:${line.color}" onclick="navigate('arrival', '${mun.id}', '${key}', '${stop.id}')">
+                <div class="line-badge" style="background:rgba(${hexToRgb(line.color)},0.15);color:${line.color}">🚏</div>
+                <div class="line-info">
+                  <div class="line-name">${stop.name}</div>
+                  <div class="line-tag">${line.name}</div>
+                  <div style="font-size: 11px; margin-top: 4px; color: var(--muted);">${badge} Επόμενο: ${nextBus === 0 ? '<span style="color:var(--green);font-weight:700;">Τώρα!</span>' : `<b>${nextBus} λεπτά</b>`}</div>
+                </div>
+                <div class="fav-btn active" onclick="toggleFavoriteStop('${mun.id}', '${key}', '${stop.id}', event)">♥</div>
+                <div class="chevron">›</div>
+              </div>`;
+        });
+    }
+
+    if (html === '') {
+        html = `
+            <div style="text-align: center; padding: 40px 20px; color: var(--muted);">
+                <div style="font-size: 40px; margin-bottom: 15px; opacity: 0.5;">❤️</div>
+                <h3 style="font-size: 18px; margin-bottom: 8px; color: var(--text);">Δεν υπάρχουν αγαπημένα</h3>
+                <p style="font-size: 14px; line-height: 1.5;">Πάτα την καρδούλα (♡) στους δήμους, στις γραμμές, ή στις στάσεις που χρησιμοποιείς πιο συχνά για να βρίσκονται εδώ!</p>
+            </div>
+        `;
+    }
+
     return html;
 }
 
@@ -517,6 +736,10 @@ function buildLinesScreen(municipalityId) {
             ? `${line.stops[0].name} → ${line.stops[line.stops.length - 1].name}`
             : (line.status === 'active' ? 'Ενεργή Γραμμή' : 'Μη διαθέσιμη');
 
+        const lineId = `${municipalityId}|${key}`;
+        const isFav = favoriteLines.includes(lineId);
+        const favIcon = isFav ? '♥' : '♡';
+
         html += `
           <div class="line-card" style="--lc:${line.color}" onclick="navigate('stops', '${municipalityId}', '${key}')">
             <div class="line-badge" style="background:rgba(${rgb},0.15);color:${line.color}">${line.code || key}</div>
@@ -528,6 +751,9 @@ function buildLinesScreen(municipalityId) {
               <div class="line-freq">${nextBus === 0 ? 'Τώρα' : nextBus === 1 ? '1 λεπτό' : nextBus + ' λεπτά'}</div>
               <div class="line-freq-lbl">επόμενο</div>
               <div class="line-stops-count">${line.stops?.length > 0 ? line.stops.length + ' στάσεις' : (line.totalStops ? line.totalStops + ' στάσεις' : '—')}</div>
+            </div>
+            <div class="fav-btn ${isFav ? 'active' : ''}" onclick="toggleFavoriteLine('${municipalityId}', '${key}', event)">
+              ${favIcon}
             </div>
             <div class="chevron">›</div>
           </div>`;
@@ -564,6 +790,10 @@ function buildStopsScreen(municipalityId, lineKey) {
             const badge = isFirst ? `<span class="stop-badge start">Αφετηρία</span>`
                 : isLast ? `<span class="stop-badge end">Τέρμα</span>` : '';
             const nextBus = minutesUntil(line.freq, i, stopCount);
+            const stopIdStr = `${municipalityId}|${lineKey}|${s.id}`;
+            const isFav = favoriteStops.includes(stopIdStr);
+            const favIcon = isFav ? '♥' : '♡';
+
             html += `
               <div class="stop-row ${isFirst || isLast ? 'terminal' : ''}" onclick="navigate('arrival', '${municipalityId}', '${lineKey}', '${s.id}')">
                 <div class="stop-dot-wrap"><div class="stop-dot"></div></div>
@@ -572,6 +802,9 @@ function buildStopsScreen(municipalityId, lineKey) {
                   <div class="stop-sub">Επόμενο σε ${nextBus === 0 ? '<b style="color:var(--green)">Τώρα!</b>' : `<b>${nextBus} λεπτά</b>`}</div>
                 </div>
                 ${badge}
+                <div class="fav-btn ${isFav ? 'active' : ''}" onclick="toggleFavoriteStop('${municipalityId}', '${lineKey}', '${s.id}', event)" style="margin-left:auto; padding: 4px;">
+                  ${favIcon}
+                </div>
                 <div class="stop-chevron">›</div>
               </div>`;
         });
@@ -739,13 +972,17 @@ async function fetchMunicipalities() {
         // Convert API format to app format
         const formatted = {};
         data.municipalities.forEach(m => {
+            let defaultCenter = [37.935, 23.715]; // Default to Palaio Faliro
+            if (m.id === 'athens') defaultCenter = [37.9838, 23.7275];
+            else if (m.id === 'thessaloniki') defaultCenter = [40.6401, 22.9444];
+
             formatted[m.id] = {
                 id: m.id,
                 name: m.municipality,
                 region: m.region,
                 totalRoutes: m.totalRoutes,
                 // Center will be updated when we get lines or use a default
-                center: m.id === 'athens' ? [37.9838, 23.7275] : [37.935, 23.715],
+                center: defaultCenter,
                 lines: {}
             };
         });
@@ -884,17 +1121,22 @@ function buildSearchResults(query) {
 function setNavTab(tab) {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
     const el = document.getElementById(
-        tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : 'navMap'
+        tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : tab === 'favorites' ? 'navFavorites' : 'navMap'
     );
     if (el) el.classList.add('active');
 }
 
 function navTo(tab) {
-    const tabId = tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : 'navMap';
+    const tabId = tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : tab === 'favorites' ? 'navFavorites' : 'navMap';
     const isAlreadyActive = document.getElementById(tabId)?.classList.contains('active');
 
-    // Tap on already-active tab → reset to home screen
+    // Tap on already-active tab
     if (isAlreadyActive) {
+        if (tab === 'favorites') {
+            // just refresh the favorites view
+            navigate('favorites');
+            return;
+        }
         hideSearch();
         if (mapVisible) toggleMap(); // hide map, let sheet fill screen
         navigate('municipalities');
@@ -906,6 +1148,11 @@ function navTo(tab) {
     if (tab === 'arrivals') {
         hideSearch();
         setNavTab('arrivals');
+        navigate('municipalities');
+    } else if (tab === 'favorites') {
+        hideSearch();
+        setNavTab('favorites');
+        navigate('favorites');
     } else if (tab === 'search') {
         showSearch();
         setNavTab('search');
@@ -947,9 +1194,22 @@ document.getElementById('searchInput').addEventListener('keydown', function (e) 
 //  BOOT
 // ═══════════════════════════════════════════════════
 async function init() {
+    console.log("init() Started.");
     try {
         await fetchMunicipalities();
+        console.log("fetchMunicipalities completed.");
         navigate('municipalities');
+
+        requestUserLocation().then(loc => {
+            console.log("User location request resolved:", loc);
+            if (loc) {
+                userLocation = loc;
+                if (state.screen === 'municipalities') {
+                    console.log("Updating sheetBody with location data...");
+                    document.getElementById('sheetBody').innerHTML = buildMunicipalitiesScreen();
+                }
+            }
+        });
     } catch (e) {
         console.error('Σφάλμα φόρτωσης δεδομένων:', e);
         document.getElementById('sheetBody').innerHTML =
