@@ -120,7 +120,7 @@ function requestUserLocation() {
 function drawMunicipalitiesOverview() {
     clearMapLayers();
     Object.values(MUNICIPALITIES_DATA).forEach(mun => {
-        if (!mun.center) return;
+        if (!mun.center || mun.center[0] === null || mun.center[1] === null) return;
         const marker = L.circleMarker(mun.center, {
             radius: 11, color: '#fff', fillColor: '#3b7ef6', fillOpacity: 1, weight: 2.5,
             interactive: true
@@ -141,7 +141,9 @@ function drawMunicipalitiesOverview() {
         });
         mapLayers.push(marker);
     });
-    const coords = Object.values(MUNICIPALITIES_DATA).filter(m => m.center).map(m => m.center);
+    const coords = Object.values(MUNICIPALITIES_DATA)
+        .filter(m => m.center && m.center[0] !== null && m.center[1] !== null)
+        .map(m => m.center);
     if (coords.length > 0) map.fitBounds(L.latLngBounds(coords), { padding: [50, 50] });
 }
 
@@ -152,9 +154,14 @@ function drawAllLinesFaint(municipalityId) {
     if (!mun || !mun.lines) return;
     Object.entries(mun.lines).forEach(([lineKey, line]) => {
         if (!line.stops || line.stops.length === 0) return;
-        const coords = line.stops.map(s => s.coords);
-        addToMap(L.polyline(coords, { color: line.color, weight: 2.5, opacity: 0.25, dashArray: '7,6' }));
+        const coords = line.stops
+            .filter(s => s.coords && s.coords[0] !== null && s.coords[1] !== null)
+            .map(s => s.coords);
+        if (coords.length > 1) {
+            addToMap(L.polyline(coords, { color: line.color, weight: 2.5, opacity: 0.25, dashArray: '7,6' }));
+        }
         line.stops.forEach(s => {
+            if (!s.coords || s.coords[0] === null || s.coords[1] === null) return;
             const marker = L.circleMarker(s.coords, { radius: 4, color: '#fff', fillColor: line.color, fillOpacity: 0.45, weight: 1.5 });
             marker.bindTooltip(`<b>${s.name}</b><br><span style="font-size:11px;color:#666">${line.name}</span>`, { className: 'leaflet-tooltip-custom' });
             marker.on('click', () => navigate('stops', municipalityId, lineKey));
@@ -171,12 +178,17 @@ function drawLine(municipalityId, lineKey, selectedStopId = null) {
     if (!mun || !mun.lines || !mun.lines[lineKey]) return;
     const line = mun.lines[lineKey];
     if (!line.stops || line.stops.length === 0) return;
-    const coords = line.stops.map(s => s.coords);
+    const coords = line.stops
+        .filter(s => s.coords && s.coords[0] !== null && s.coords[1] !== null)
+        .map(s => s.coords);
 
-    addToMap(L.polyline(coords, { color: line.color, weight: 12, opacity: 0.12 }));
-    addToMap(L.polyline(coords, { color: line.color, weight: 4, opacity: 0.9 }));
+    if (coords.length > 1) {
+        addToMap(L.polyline(coords, { color: line.color, weight: 12, opacity: 0.12 }));
+        addToMap(L.polyline(coords, { color: line.color, weight: 4, opacity: 0.9 }));
+    }
 
     line.stops.forEach(s => {
+        if (!s.coords || s.coords[0] === null || s.coords[1] === null) return;
         const isSelected = s.id === selectedStopId;
         const isTerminal = !!s.terminal;
         const r = isSelected ? 11 : (isTerminal ? 8 : 6);
@@ -209,12 +221,14 @@ function drawLine(municipalityId, lineKey, selectedStopId = null) {
         }
     });
 
-    const bounds = L.latLngBounds(coords);
     const isMobile = window.innerWidth < 700;
     const pad = isMobile
         ? [40, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-mid') || '55') * window.innerHeight / 100 + 20]
         : [60, 60];
-    map.fitBounds(bounds, { paddingTopLeft: [pad[0], pad[0]], paddingBottomRight: [pad[0], pad[1]] });
+    if (coords.length > 0) {
+        const bounds = L.latLngBounds(coords);
+        map.fitBounds(bounds, { paddingTopLeft: [pad[0], pad[0]], paddingBottomRight: [pad[0], pad[1]] });
+    }
 }
 
 // ═══════════════════════════════════════════════════
@@ -322,6 +336,7 @@ function computeBusPositions(line) {
             }
 
             if (nowMins >= depAtI && nowMins < depAtI1) {
+                if (from.coords[0] === null || to.coords[0] === null) break;
                 const progress = (nowMins - depAtI) / (depAtI1 - depAtI);
                 const lat = from.coords[0] + (to.coords[0] - from.coords[0]) * progress;
                 const lng = from.coords[1] + (to.coords[1] - from.coords[1]) * progress;
@@ -520,7 +535,9 @@ function render() {
         drawAllLinesFaint(municipalityId);
         renderLinesFab(municipalityId);
         body.innerHTML = buildLinesScreen(municipalityId);
-        if (mun.center) map.flyTo(mun.center, 14, { animate: true, duration: 1.5 });
+        if (mun.center && mun.center[0] !== null && mun.center[1] !== null) {
+            map.flyTo(mun.center, 14, { animate: true, duration: 1.5 });
+        }
         // Prefetch all routes in background so all buses appear
         prefetchAllRoutes(municipalityId).then(() => {
             drawAllActiveBuses(municipalityId, null);
@@ -556,7 +573,9 @@ function render() {
         fab.style.display = 'none';
         body.innerHTML = buildArrivalScreen(municipalityId, lineKey, stopId);
         startCountdown(municipalityId, lineKey, stopId);
-        map.panTo(stop.coords, { animate: true });
+        if (stop.coords && stop.coords[0] !== null && stop.coords[1] !== null) {
+            map.panTo(stop.coords, { animate: true });
+        }
         // Show ALL buses — selected line's bus is highlighted
         drawAllActiveBuses(municipalityId, lineKey);
         startBusRefresh(() => drawAllActiveBuses(municipalityId, lineKey));
@@ -1045,7 +1064,7 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
         }));
 
         // Update municipality center based on first stop if not already set meaningfully
-        if (line.stops.length > 0) {
+        if (line.stops.length > 0 && line.stops[0].coords[0] !== null) {
             MUNICIPALITIES_DATA[municipalityId].center = line.stops[0].coords;
         }
     } catch (e) {
