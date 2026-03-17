@@ -31,6 +31,14 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            const errDiv = document.createElement('div');
+            errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:white;z-index:99999;padding:10px;font-size:12px;';
+            errDiv.textContent = 'ERROR: ' + msg + ' at ' + line + ':' + col;
+            document.body.appendChild(errDiv);
+        };
+    </script>
 </head>
 
 <body>
@@ -38,11 +46,7 @@
         <!-- ── MAP ── -->
         <div id="map"></div>
 
-        <!-- ── Map legend ── -->
-        <div class="map-fab" id="mapFab" style="display:none">
-            <div class="fab-title" id="fabTitle">Γραμμές</div>
-            <div id="fabItems"></div>
-        </div>
+
 
         <!-- ── BOTTOM SHEET ── -->
         <div id="sheet">

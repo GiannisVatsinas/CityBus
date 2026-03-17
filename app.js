@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════
 const API_BASE_URL = "https://rldqhflxdvyzjcjhcole.supabase.co/functions/v1";
 let MUNICIPALITIES_DATA = {};
-let state = { screen: 'municipalities', municipalityId: null, lineKey: null, stopId: null };
+let state = { screen: 'municipalities', municipalityId: null, lineKey: null, stopId: null, history: [] };
 let mapLayers = [];
 let busMarkerLayers = []; // separate layer group for live bus markers
 let countdownInterval = null;
@@ -147,29 +147,43 @@ function drawMunicipalitiesOverview() {
     if (coords.length > 0) map.fitBounds(L.latLngBounds(coords), { padding: [50, 50] });
 }
 
-// Draw all lines of a municipality faintly — stops clickable to open that line
-function drawAllLinesFaint(municipalityId) {
+// Draw all routes of a municipality clearly
+function drawAllMunicipalityRoutes(municipalityId) {
+    console.log(`drawAllMunicipalityRoutes for ${municipalityId}...`);
     clearMapLayers();
     const mun = MUNICIPALITIES_DATA[municipalityId];
-    if (!mun || !mun.lines) return;
+    if (!mun || !mun.lines) {
+        console.warn(`No data for municipality ${municipalityId}`);
+        return;
+    }
+    
+    const allCoords = [];
     Object.entries(mun.lines).forEach(([lineKey, line]) => {
-        if (!line.stops || line.stops.length === 0) return;
-        const coords = line.stops
-            .filter(s => s.coords && s.coords[0] !== null && s.coords[1] !== null)
-            .map(s => s.coords);
+        const coords = line.stops.map(s => s.coords).filter(c => c && c[0] !== null && c[1] !== null);
+        console.log(`  Line ${lineKey}: ${coords.length} valid stops`);
         if (coords.length > 1) {
-            addToMap(L.polyline(coords, { color: line.color, weight: 2.5, opacity: 0.25, dashArray: '7,6' }));
+            allCoords.push(...coords);
+            // Solid, semi-transparent lines
+            addToMap(L.polyline(coords, { color: line.color, weight: 4.5, opacity: 0.6 }));
         }
         line.stops.forEach(s => {
             if (!s.coords || s.coords[0] === null || s.coords[1] === null) return;
-            const marker = L.circleMarker(s.coords, { radius: 4, color: '#fff', fillColor: line.color, fillOpacity: 0.45, weight: 1.5 });
+            const marker = L.circleMarker(s.coords, { radius: 5, color: '#fff', fillColor: line.color, fillOpacity: 0.8, weight: 1.5 });
             marker.bindTooltip(`<b>${s.name}</b><br><span style="font-size:11px;color:#666">${line.name}</span>`, { className: 'leaflet-tooltip-custom' });
             marker.on('click', () => navigate('stops', municipalityId, lineKey));
-            marker.on('mouseover', function () { this.setStyle({ fillOpacity: 1, radius: 6 }); });
-            marker.on('mouseout', function () { this.setStyle({ fillOpacity: 0.45, radius: 4 }); });
+            marker.on('mouseover', function () { this.setStyle({ fillOpacity: 1, radius: 7 }); });
+            marker.on('mouseout', function () { this.setStyle({ fillOpacity: 0.8, radius: 5 }); });
             addToMap(marker);
         });
     });
+
+    if (allCoords.length > 0) {
+        console.log(`  Fitting map to ${allCoords.length} points...`);
+        map.fitBounds(L.latLngBounds(allCoords), { padding: [50, 50] });
+    } else if (mun.center) {
+        console.log(`  No route points, centering on municipality center ${mun.center}`);
+        map.setView(mun.center, 15);
+    }
 }
 
 function drawLine(municipalityId, lineKey, selectedStopId = null) {
@@ -177,10 +191,8 @@ function drawLine(municipalityId, lineKey, selectedStopId = null) {
     const mun = MUNICIPALITIES_DATA[municipalityId];
     if (!mun || !mun.lines || !mun.lines[lineKey]) return;
     const line = mun.lines[lineKey];
-    if (!line.stops || line.stops.length === 0) return;
-    const coords = line.stops
-        .filter(s => s.coords && s.coords[0] !== null && s.coords[1] !== null)
-        .map(s => s.coords);
+    const coords = line.stops.map(s => s.coords).filter(c => c && c[0] !== null && c[1] !== null);
+    if (coords.length === 0) return;
 
     if (coords.length > 1) {
         addToMap(L.polyline(coords, { color: line.color, weight: 12, opacity: 0.12 }));
@@ -452,24 +464,32 @@ function toggleMap() {
     mapVisible = !mapVisible;
     const app = document.getElementById('app');
     const btn = document.getElementById('mapToggleBtn');
+    if (!btn) {
+        console.warn('mapToggleBtn not found in DOM');
+        // Still toggle visibility of app if needed, but skip button styles
+    }
     if (mapVisible) {
         app.classList.remove('map-hidden');
-        btn.classList.add('active');
-        btn.title = 'Απόκρυψη χάρτη';
+        if (btn) {
+            btn.classList.add('active');
+            btn.title = 'Απόκρυψη χάρτη';
+        }
         setTimeout(() => {
             map.invalidateSize();
             // Re-render map layers after map becomes visible
             const { screen, municipalityId, lineKey, stopId } = state;
             if (screen === 'municipalities') drawMunicipalitiesOverview();
-            else if (screen === 'lines') { drawAllLinesFaint(municipalityId); drawAllActiveBuses(municipalityId, null); }
+            else if (screen === 'lines') { drawAllMunicipalityRoutes(municipalityId); drawAllActiveBuses(municipalityId, null); }
             else if (screen === 'stops') { drawLine(municipalityId, lineKey); drawAllActiveBuses(municipalityId, lineKey); }
             else if (screen === 'arrival') { drawLine(municipalityId, lineKey, stopId); drawAllActiveBuses(municipalityId, lineKey); }
             setSheetState('mid');
         }, 50);
     } else {
         app.classList.add('map-hidden');
-        btn.classList.remove('active');
-        btn.title = 'Εμφάνιση χάρτη';
+        if (btn) {
+            btn.classList.remove('active');
+            btn.title = 'Εμφάνιση χάρτη';
+        }
         // Let sheet fill the screen
         const sheet = document.getElementById('sheet');
         sheet.classList.remove('peek', 'expanded');
@@ -480,8 +500,23 @@ function toggleMap() {
 // ═══════════════════════════════════════════════════
 //  NAVIGATION
 // ═══════════════════════════════════════════════════
-async function navigate(screen, municipalityId = state.municipalityId, lineKey = state.lineKey, stopId = state.stopId) {
-    state = { screen, municipalityId, lineKey, stopId };
+async function navigate(screen, municipalityId = state.municipalityId, lineKey = state.lineKey, stopId = state.stopId, isBack = false) {
+    console.log(`Navigating to ${screen}: mun=${municipalityId}, line=${lineKey}, stop=${stopId}, isBack=${isBack}`);
+    if (!isBack && state.screen) {
+        state.history.push({
+            screen: state.screen,
+            municipalityId: state.municipalityId,
+            lineKey: state.lineKey,
+            stopId: state.stopId,
+            searchVisible: document.getElementById('searchOverlay') ? document.getElementById('searchOverlay').classList.contains('visible') : false
+        });
+    }
+
+    state.screen = screen;
+    state.municipalityId = municipalityId;
+    state.lineKey = lineKey;
+    state.stopId = stopId;
+    
     if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
     stopBusRefresh();
 
@@ -501,11 +536,11 @@ async function navigate(screen, municipalityId = state.municipalityId, lineKey =
 
 function render() {
     const { screen, municipalityId, lineKey, stopId } = state;
+    console.log("RENDER CALLED:", { screen, municipalityId, lineKey, stopId });
     const backBtn = document.getElementById('backBtn');
     const title = document.getElementById('sheetTitle');
     const sub = document.getElementById('sheetSub');
     const body = document.getElementById('sheetBody');
-    const fab = document.getElementById('mapFab');
 
     if (screen === 'municipalities') {
         backBtn.classList.add('hidden');
@@ -513,7 +548,6 @@ function render() {
         sub.textContent = 'Δημοτική Συγκοινωνία';
         title.style.color = '';
         drawMunicipalitiesOverview();
-        fab.style.display = 'none';
         body.innerHTML = buildMunicipalitiesScreen();
 
     } else if (screen === 'favorites') {
@@ -523,7 +557,6 @@ function render() {
         title.style.color = '';
         clearMapLayers();
         clearBusMarkers();
-        fab.style.display = 'none';
         body.innerHTML = buildFavoritesScreen();
 
     } else if (screen === 'lines') {
@@ -532,11 +565,12 @@ function render() {
         title.textContent = 'Επίλεξε Γραμμή';
         sub.textContent = mun.name;
         title.style.color = '';
-        drawAllLinesFaint(municipalityId);
-        renderLinesFab(municipalityId);
+        drawAllMunicipalityRoutes(municipalityId);
         body.innerHTML = buildLinesScreen(municipalityId);
-        if (mun.center && mun.center[0] !== null && mun.center[1] !== null) {
-            map.flyTo(mun.center, 14, { animate: true, duration: 1.5 });
+        try {
+            if (mun.center) map.flyTo(mun.center, 14, { animate: true, duration: 1.5 });
+        } catch (e) {
+            console.error("Leaflet flyTo failed:", e);
         }
         // Prefetch all routes in background so all buses appear
         prefetchAllRoutes(municipalityId).then(() => {
@@ -555,7 +589,6 @@ function render() {
         sub.textContent = mun.name;
         title.style.color = line.color;
         drawLine(municipalityId, lineKey);
-        renderStopsFab(municipalityId, lineKey);
         body.innerHTML = buildStopsScreen(municipalityId, lineKey);
         // Show ALL buses — selected line's bus is highlighted (larger)
         drawAllActiveBuses(municipalityId, lineKey);
@@ -570,7 +603,6 @@ function render() {
         sub.textContent = line.name;
         title.style.color = line.color;
         drawLine(municipalityId, lineKey, stopId);
-        fab.style.display = 'none';
         body.innerHTML = buildArrivalScreen(municipalityId, lineKey, stopId);
         startCountdown(municipalityId, lineKey, stopId);
         if (stop.coords && stop.coords[0] !== null && stop.coords[1] !== null) {
@@ -611,7 +643,7 @@ function buildMunicipalitiesScreen() {
         const favIcon = isFav ? '♥' : '♡';
 
         html += `
-          <div class="line-card" style="--lc:#3b7ef6" onclick="navigate('lines', '${mun.id}')">
+          <div class="line-card" style="--lc:#3b7ef6" onclick="navigate('lines', '${mun.id}'); event.stopPropagation();">
             <div class="line-badge" style="background:rgba(59,126,246,0.12);color:#3b7ef6">🏛</div>
             <div class="line-info">
               <div class="line-name">${mun.name}</div>
@@ -746,8 +778,10 @@ function buildFavoritesScreen() {
 
 // ─────────────── LINES SCREEN ───────────────
 function buildLinesScreen(municipalityId) {
+    console.log("buildLinesScreen starting for:", municipalityId);
     let html = `<div class="section-label">Διαθέσιμες Γραμμές</div>`;
-    const lines = MUNICIPALITIES_DATA[municipalityId].lines || {};
+    const lines = MUNICIPALITIES_DATA[municipalityId]?.lines || {};
+    console.log("Found lines:", Object.keys(lines).length);
     Object.entries(lines).forEach(([key, line]) => {
         const nextBus = minutesUntil(line.freq);
         const rgb = hexToRgb(line.color);
@@ -780,19 +814,7 @@ function buildLinesScreen(municipalityId) {
     return html;
 }
 
-function renderLinesFab(municipalityId) {
-    const fab = document.getElementById('mapFab');
-    const items = document.getElementById('fabItems');
-    document.getElementById('fabTitle').textContent = 'Γραμμές';
-    fab.style.display = 'block';
-    const lines = MUNICIPALITIES_DATA[municipalityId].lines || {};
-    items.innerHTML = Object.entries(lines).map(([key, l]) =>
-        `<div class="fab-item">
-          <div class="fab-dot" style="background:${l.color}"></div>
-          <div class="fab-label">${l.code || key}</div>
-        </div>`
-    ).join('');
-}
+
 
 // ─────────────── STOPS SCREEN ───────────────
 function buildStopsScreen(municipalityId, lineKey) {
@@ -832,21 +854,7 @@ function buildStopsScreen(municipalityId, lineKey) {
     return html;
 }
 
-function renderStopsFab(municipalityId, lineKey) {
-    const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
-    const fab = document.getElementById('mapFab');
-    const items = document.getElementById('fabItems');
-    document.getElementById('fabTitle').textContent = line.name;
-    fab.style.display = 'block';
-    if (line.stops) {
-        items.innerHTML = line.stops.map(s =>
-            `<div class="fab-item">
-              <div class="fab-dot" style="background:${line.color}"></div>
-              <div class="fab-label">${s.name}</div>
-            </div>`
-        ).join('');
-    }
-}
+
 
 // ─────────────── ARRIVAL SCREEN ───────────────
 function buildArrivalScreen(municipalityId, lineKey, stopId) {
@@ -974,38 +982,56 @@ function startCountdown(municipalityId, lineKey, stopId) {
 //  BACK BUTTON
 // ═══════════════════════════════════════════════════
 document.getElementById('backBtn').addEventListener('click', () => {
-    if (state.screen === 'arrival') navigate('stops', state.municipalityId, state.lineKey);
-    else if (state.screen === 'stops') navigate('lines', state.municipalityId);
-    else if (state.screen === 'lines') navigate('municipalities');
+    if (state.history.length > 0) {
+        const prev = state.history.pop();
+        navigate(prev.screen, prev.municipalityId, prev.lineKey, prev.stopId, true);
+        if (prev.searchVisible) {
+            document.getElementById('searchOverlay').classList.add('visible');
+            setNavTab('search');
+        }
+    } else {
+        navigate('municipalities', null, null, null, true);
+    }
 });
 
 // ═══════════════════════════════════════════════════
 //  API CALLS
 // ═══════════════════════════════════════════════════
 
+
+// ═══════════════════════════════════════════════════
+//  API CALLS (Supabase)
+// ═══════════════════════════════════════════════════
+
 async function fetchMunicipalities() {
+    console.log("fetchMunicipalities starting (API)...");
     try {
         const response = await fetch(`${API_BASE_URL}/transport-api`);
         const data = await response.json();
 
         // Convert API format to app format
         const formatted = {};
+        const defaultCenters = {
+            'nea-smyrni': [37.948, 23.713],
+            'palaio-faliro': [37.925, 23.698],
+            'athens': [37.9838, 23.7275],
+            'thessaloniki': [40.6401, 22.9444]
+        };
         data.municipalities.forEach(m => {
-            let defaultCenter = [37.935, 23.715]; // Default to Palaio Faliro
-            if (m.id === 'athens') defaultCenter = [37.9838, 23.7275];
-            else if (m.id === 'thessaloniki') defaultCenter = [40.6401, 22.9444];
-
-            formatted[m.id] = {
-                id: m.id,
-                name: m.municipality,
+            const mId = m.id;
+            const mName = m.municipality;
+            formatted[mId] = {
+                id: mId,
+                name: mName,
                 region: m.region,
                 totalRoutes: m.totalRoutes,
-                // Center will be updated when we get lines or use a default
-                center: defaultCenter,
-                lines: {}
+                center: defaultCenters[mId] || [37.9838, 23.7275], 
+                lines: MUNICIPALITIES_DATA[mId]?.lines || {}
             };
         });
-        MUNICIPALITIES_DATA = formatted;
+        
+        MUNICIPALITIES_DATA = { ...MUNICIPALITIES_DATA, ...formatted };
+        console.log("fetchMunicipalities completed. Loaded municipalities:", Object.keys(MUNICIPALITIES_DATA));
     } catch (e) {
         console.error('Error fetching municipalities:', e);
         throw e;
@@ -1013,16 +1039,20 @@ async function fetchMunicipalities() {
 }
 
 async function fetchLines(municipalityId) {
+    console.log(`fetchLines for ${municipalityId} (API)...`);
     try {
         const response = await fetch(`${API_BASE_URL}/transport-api?municipality=${municipalityId}`);
         const data = await response.json();
 
         const mun = MUNICIPALITIES_DATA[municipalityId];
-        mun.lines = {};
+        if (!mun.lines) mun.lines = {};
 
         data.routes.forEach(r => {
-            // Using r.id as key for state, but keeping code for display
-            mun.lines[r.id] = {
+            if (!mun.lines[r.id]) {
+                mun.lines[r.id] = { stops: [] };
+            }
+            
+            Object.assign(mun.lines[r.id], {
                 id: r.id,
                 code: r.code,
                 name: r.name,
@@ -1031,21 +1061,21 @@ async function fetchLines(municipalityId) {
                 status: r.status,
                 totalStops: r.total_stops || r.stops_count || null,
                 hours: { start: "06:00", end: "22:00" },
-                stops: []
-            };
+            });
         });
+        render();
     } catch (e) {
         console.error(`Error fetching lines for ${municipalityId}:`, e);
     }
 }
 
 async function fetchRouteDetails(municipalityId, lineKey, routeId) {
+    console.log(`fetchRouteDetails for ${routeId} (API)...`);
     try {
         const response = await fetch(`${API_BASE_URL}/transport-api?route=${routeId}`);
         const data = await response.json();
 
         const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
-        // Save bus_plate from route if available
         if (data.route?.bus_plate) line.busPlate = data.route.bus_plate;
 
         line.stops = data.stops.map(s => ({
@@ -1053,7 +1083,6 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
             name: s.name,
             coords: [s.latitude, s.longitude],
             terminal: s.is_terminal,
-            // Store weekday departure times for timetable-based simulation
             departureTimes: (s.timetable || [])
                 .filter(t => t.day_type === 'weekday')
                 .map(t => {
@@ -1063,21 +1092,78 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
                 .sort((a, b) => a - b)
         }));
 
-        // Update municipality center based on first stop if not already set meaningfully
-        if (line.stops.length > 0 && line.stops[0].coords[0] !== null) {
-            MUNICIPALITIES_DATA[municipalityId].center = line.stops[0].coords;
-        }
     } catch (e) {
         console.error(`Error fetching route details for ${routeId}:`, e);
     }
 }
 
+
+let recentSearches = JSON.parse(localStorage.getItem('citybus_recent_searches')) || [];
+
+function saveRecentSearch(query) {
+    const q = query.trim();
+    if (!q) return;
+    recentSearches = recentSearches.filter(item => item !== q);
+    recentSearches.unshift(q);
+    if (recentSearches.length > 5) recentSearches.pop();
+    localStorage.setItem('citybus_recent_searches', JSON.stringify(recentSearches));
+}
+
+function executeRecentSearch(query) {
+    const input = document.getElementById('searchInput');
+    input.value = query;
+    document.getElementById('searchResults').innerHTML = buildSearchResults(query);
+    input.focus();
+}
+
 // ═══════════════════════════════════════════════════
 //  GLOBAL SEARCH
 // ═══════════════════════════════════════════════════
+let isDataPrefetched = false;
+let isPrefetching = false;
+
+async function prefetchAllData() {
+    if (isDataPrefetched || isPrefetching) return;
+    isPrefetching = true;
+    try {
+        const muns = Object.keys(MUNICIPALITIES_DATA);
+        await Promise.all(muns.map(async munId => {
+            if (!MUNICIPALITIES_DATA[munId].lines || Object.keys(MUNICIPALITIES_DATA[munId].lines).length === 0) {
+                await fetchLines(munId);
+            }
+        }));
+        await Promise.all(muns.map(munId => prefetchAllRoutes(munId)));
+        isDataPrefetched = true;
+        
+        // If search is currently visible, update results
+        const searchOverlay = document.getElementById('searchOverlay');
+        if (searchOverlay && searchOverlay.classList.contains('visible')) {
+            const input = document.getElementById('searchInput');
+            if (input) {
+                document.getElementById('searchResults').innerHTML = buildSearchResults(input.value);
+            }
+        }
+    } catch (e) {
+        console.error("Data prefetch error:", e);
+    } finally {
+        isPrefetching = false;
+    }
+}
+
 function buildSearchResults(query) {
     const q = query.trim().toLowerCase();
-    if (!q) return '';
+    if (!q) {
+        if (recentSearches.length === 0) return '';
+        let html = '<div class="section-label" style="padding: 0 16px;">Πρόσφατες Αναζητήσεις</div>';
+        recentSearches.forEach(rs => {
+            html += `
+              <div class="stop-row" onclick="executeRecentSearch('${rs.replace(/'/g, "\\'")}')" style="padding: 12px 16px; margin-bottom: 4px; background: var(--surface); border-radius: 12px;">
+                <span style="font-size: 16px; margin-right: 12px; opacity: 0.5;">🕒</span>
+                <div class="stop-info"><div class="stop-name" style="font-weight: 500;">${rs}</div></div>
+              </div>`;
+        });
+        return html;
+    }
 
     let lineResults = [];
     let stopResults = [];
@@ -1110,7 +1196,7 @@ function buildSearchResults(query) {
         lineResults.forEach(({ mun, lineKey, line }) => {
             const rgb = hexToRgb(line.color);
             html += `
-              <div class="line-card" style="--lc:${line.color}" onclick="navigate('stops','${mun.id}','${lineKey}'); document.getElementById('searchInput').value=''; hideSearch();">
+              <div class="line-card" style="--lc:${line.color}" onclick="saveRecentSearch(document.getElementById('searchInput').value); navigate('stops','${mun.id}','${lineKey}'); document.getElementById('searchInput').value=''; hideSearch(false);">
                 <div class="line-badge" style="background:rgba(${rgb},0.15);color:${line.color}">${line.code || lineKey}</div>
                 <div class="line-info">
                   <div class="line-name">${line.name}</div>
@@ -1124,7 +1210,7 @@ function buildSearchResults(query) {
         html += `<div class="section-label">Στάσεις</div>`;
         stopResults.forEach(({ mun, lineKey, line, stop }) => {
             html += `
-              <div class="line-card" style="--lc:${line.color}" onclick="navigate('arrival','${mun.id}','${lineKey}','${stop.id}'); document.getElementById('searchInput').value=''; hideSearch();">
+              <div class="line-card" style="--lc:${line.color}" onclick="saveRecentSearch(document.getElementById('searchInput').value); navigate('arrival','${mun.id}','${lineKey}','${stop.id}'); document.getElementById('searchInput').value=''; hideSearch(false);">
                 <div class="line-badge" style="background:rgba(${hexToRgb(line.color)},0.15);color:${line.color}">🚏</div>
                 <div class="line-info">
                   <div class="line-name">${stop.name}</div>
@@ -1140,43 +1226,45 @@ function buildSearchResults(query) {
 function setNavTab(tab) {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
     const el = document.getElementById(
-        tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : tab === 'favorites' ? 'navFavorites' : 'navMap'
+        tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : tab === 'favorites' ? 'navFavorites' : tab === 'map' ? 'navMap' : null
     );
     if (el) el.classList.add('active');
 }
 
 function navTo(tab) {
-    const tabId = tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : tab === 'favorites' ? 'navFavorites' : 'navMap';
+    const tabId = tab === 'arrivals' ? 'navArrivals' : tab === 'search' ? 'navSearch' : tab === 'favorites' ? 'navFavorites' : tab === 'map' ? 'navMap' : null;
     const isAlreadyActive = document.getElementById(tabId)?.classList.contains('active');
 
     // Tap on already-active tab
     if (isAlreadyActive) {
         if (tab === 'favorites') {
-            // just refresh the favorites view
-            navigate('favorites');
+            state.history = [];
+            navigate('favorites', null, null, null, true);
             return;
         }
-        hideSearch();
+        state.history = [];
+        hideSearch(true);
         if (mapVisible) toggleMap(); // hide map, let sheet fill screen
-        navigate('municipalities');
+        navigate('municipalities', null, null, null, true);
         setNavTab('arrivals');
         return;
     }
 
     // Normal tab switch
+    state.history = []; // Clear history stack when switching bottom tabs
     if (tab === 'arrivals') {
-        hideSearch();
+        hideSearch(true);
         setNavTab('arrivals');
-        navigate('municipalities');
+        navigate('municipalities', null, null, null, true);
     } else if (tab === 'favorites') {
-        hideSearch();
+        hideSearch(true);
         setNavTab('favorites');
-        navigate('favorites');
+        navigate('favorites', null, null, null, true);
     } else if (tab === 'search') {
         showSearch();
         setNavTab('search');
     } else if (tab === 'map') {
-        hideSearch();
+        hideSearch(true);
         if (!mapVisible) toggleMap();
         setNavTab('map');
     }
@@ -1186,27 +1274,33 @@ function showSearch() {
     document.getElementById('searchOverlay').classList.add('visible');
     document.getElementById('searchInput').focus();
     setNavTab('search');
+    document.getElementById('searchResults').innerHTML = buildSearchResults(document.getElementById('searchInput').value);
 }
 
-function hideSearch() {
+function hideSearch(resetNav = true) {
     const searchTab = document.getElementById('navSearch');
     const wasActive = searchTab && searchTab.classList.contains('active');
     document.getElementById('searchOverlay').classList.remove('visible');
     document.getElementById('searchInput').value = '';
     document.getElementById('searchResults').innerHTML = '';
-    if (wasActive) {
+    if (resetNav && wasActive) {
         // Reset navigation to home screen (same as tapping active tab)
         navigate('municipalities');
         setNavTab('arrivals');
     }
 }
 
-document.getElementById('searchCloseBtn').addEventListener('click', hideSearch);
+document.getElementById('searchCloseBtn').addEventListener('click', () => hideSearch(true));
+document.getElementById('searchInput').addEventListener('click', function () {
+    if (!this.value) {
+        document.getElementById('searchResults').innerHTML = buildSearchResults('');
+    }
+});
 document.getElementById('searchInput').addEventListener('input', function () {
     document.getElementById('searchResults').innerHTML = buildSearchResults(this.value);
 });
 document.getElementById('searchInput').addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') hideSearch();
+    if (e.key === 'Escape') hideSearch(true);
 });
 
 // ═══════════════════════════════════════════════════
@@ -1217,15 +1311,18 @@ async function init() {
     try {
         await fetchMunicipalities();
         console.log("fetchMunicipalities completed.");
+        prefetchAllData(); // background fetch for global search
         navigate('municipalities');
 
         requestUserLocation().then(loc => {
             console.log("User location request resolved:", loc);
             if (loc) {
                 userLocation = loc;
+                // Only update screen if we are STILL on municipalities screen
+                // AND not currently viewing something else that got loaded in the meantime.
                 if (state.screen === 'municipalities') {
-                    console.log("Updating sheetBody with location data...");
-                    document.getElementById('sheetBody').innerHTML = buildMunicipalitiesScreen();
+                    console.log("Updating UI and map with location data...");
+                    render(); // Call full render to update both list and markers
                 }
             }
         });
