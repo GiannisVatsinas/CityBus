@@ -15,6 +15,231 @@ let favoriteMuns = JSON.parse(localStorage.getItem('favoriteMuns') || '[]');
 let favoriteLines = JSON.parse(localStorage.getItem('favoriteLines') || '[]');
 let favoriteStops = JSON.parse(localStorage.getItem('favoriteStops') || '[]');
 
+// ═══════════════════════════════════════════════════
+//  AUTH MODULE
+// ═══════════════════════════════════════════════════
+let currentUser = null; // { email } | null
+
+/** Check auth state on page load via GET /api/me */
+async function checkAuthState() {
+    try {
+        const res = await fetch('/api/me', { credentials: 'same-origin' });
+        if (res.ok) {
+            const data = await res.json();
+            currentUser = { email: data.email };
+        } else {
+            currentUser = null;
+        }
+    } catch {
+        currentUser = null;
+    }
+    updateAuthUI();
+}
+
+/** Update the profile button to reflect login state */
+function updateAuthUI() {
+    const btn = document.getElementById('profileBtn');
+    if (!btn) return;
+    if (currentUser) {
+        const initial = currentUser.email.charAt(0).toUpperCase();
+        btn.textContent = initial;
+        btn.classList.add('logged-in');
+        btn.setAttribute('aria-label', 'Προφίλ / Αποσύνδεση');
+    } else {
+        btn.textContent = '👤';
+        btn.classList.remove('logged-in');
+        btn.setAttribute('aria-label', 'Σύνδεση / Λογαριασμός');
+    }
+}
+
+/** Handle click on profile button */
+window.handleProfileBtnClick = function () {
+    if (currentUser) {
+        openAuthModal('profile');
+    } else {
+        openAuthModal('login');
+    }
+};
+
+/** Show the auth modal on a specific panel */
+function openAuthModal(panel) {
+    showPanel(panel);
+    document.getElementById('authModal').classList.add('visible');
+}
+
+/** Close the auth modal */
+window.closeAuthModal = function () {
+    document.getElementById('authModal').classList.remove('visible');
+};
+
+/** Close modal when clicking backdrop */
+document.getElementById('authModal').addEventListener('click', function (e) {
+    if (e.target === this) closeAuthModal();
+});
+
+/** Switch visible panel inside the modal */
+window.showPanel = function (name) {
+    ['login', 'register', 'forgot', 'reset', 'profile'].forEach(p => {
+        const el = document.getElementById('panel' + p.charAt(0).toUpperCase() + p.slice(1));
+        if (el) el.classList.toggle('hidden', p !== name);
+    });
+    // Populate profile panel if needed
+    if (name === 'profile' && currentUser) {
+        document.getElementById('profileEmail').textContent = currentUser.email;
+        document.getElementById('profileAvatar').textContent = currentUser.email.charAt(0).toUpperCase();
+    }
+};
+
+/** Helper to set loading state on a submit button */
+function setSubmitLoading(btnId, loading, originalText) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.textContent = loading ? 'Φορτώνει...' : originalText;
+}
+
+/** POST /api/register */
+window.doRegister = async function (e) {
+    e.preventDefault();
+    const email    = document.getElementById('regEmail').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const confirm  = document.getElementById('regConfirm').value;
+    const errorEl  = document.getElementById('registerError');
+    errorEl.textContent = '';
+
+    if (password !== confirm) {
+        errorEl.textContent = 'Οι κωδικοί δεν ταιριάζουν.';
+        return;
+    }
+    setSubmitLoading('registerSubmitBtn', true, 'Εγγραφή');
+    try {
+        const res = await fetch('/api/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) { errorEl.textContent = data.error || 'Σφάλμα εγγραφής.'; return; }
+        currentUser = { email: data.email };
+        updateAuthUI();
+        closeAuthModal();
+    } catch {
+        errorEl.textContent = 'Σφάλμα σύνδεσης. Δοκιμάστε ξανά.';
+    } finally {
+        setSubmitLoading('registerSubmitBtn', false, 'Εγγραφή');
+    }
+};
+
+/** POST /api/login */
+window.doLogin = async function (e) {
+    e.preventDefault();
+    const email    = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errorEl  = document.getElementById('loginError');
+    errorEl.textContent = '';
+
+    setSubmitLoading('loginSubmitBtn', true, 'Σύνδεση');
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) { errorEl.textContent = data.error || 'Invalid credentials'; return; }
+        currentUser = { email: data.email };
+        updateAuthUI();
+        closeAuthModal();
+    } catch {
+        errorEl.textContent = 'Σφάλμα σύνδεσης. Δοκιμάστε ξανά.';
+    } finally {
+        setSubmitLoading('loginSubmitBtn', false, 'Σύνδεση');
+    }
+};
+
+/** POST /api/logout */
+window.doLogout = async function () {
+    try {
+        await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+    } catch { /* ignore */ }
+    currentUser = null;
+    updateAuthUI();
+    closeAuthModal();
+};
+
+/** POST /api/forgot-password */
+window.doForgotPassword = async function (e) {
+    e.preventDefault();
+    const email   = document.getElementById('forgotEmail').value.trim();
+    const errorEl = document.getElementById('forgotError');
+    const successEl = document.getElementById('forgotSuccess');
+    errorEl.textContent = '';
+    successEl.textContent = '';
+
+    setSubmitLoading('forgotSubmitBtn', true, 'Αποστολή συνδέσμου');
+    try {
+        const res = await fetch('/api/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        if (!res.ok) { errorEl.textContent = data.error || 'Σφάλμα.'; return; }
+        successEl.textContent = data.message || 'Αν το email υπάρχει, θα σταλεί σύνδεσμος επαναφοράς.';
+    } catch {
+        errorEl.textContent = 'Σφάλμα σύνδεσης. Δοκιμάστε ξανά.';
+    } finally {
+        setSubmitLoading('forgotSubmitBtn', false, 'Αποστολή συνδέσμου');
+    }
+};
+
+/** POST /api/reset-password */
+window.doResetPassword = async function (e) {
+    e.preventDefault();
+    const params   = new URLSearchParams(window.location.search);
+    const token    = params.get('reset_token');
+    const email    = params.get('email');
+    const password = document.getElementById('resetPassword').value;
+    const confirm  = document.getElementById('resetConfirm').value;
+    const errorEl  = document.getElementById('resetError');
+    const successEl = document.getElementById('resetSuccess');
+    errorEl.textContent = '';
+    successEl.textContent = '';
+
+    if (password !== confirm) { errorEl.textContent = 'Οι κωδικοί δεν ταιριάζουν.'; return; }
+
+    setSubmitLoading('resetSubmitBtn', true, 'Αλλαγή κωδικού');
+    try {
+        const res = await fetch('/api/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ email, token, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) { errorEl.textContent = data.error || 'Σφάλμα.'; return; }
+        successEl.textContent = data.message || 'Ο κωδικός άλλαξε επιτυχώς!';
+        // Clear the token from the URL without reload
+        window.history.replaceState({}, '', '/');
+        setTimeout(() => { closeAuthModal(); showPanel('login'); }, 2000);
+    } catch {
+        errorEl.textContent = 'Σφάλμα σύνδεσης. Δοκιμάστε ξανά.';
+    } finally {
+        setSubmitLoading('resetSubmitBtn', false, 'Αλλαγή κωδικού');
+    }
+};
+
+/** On page load, check if URL contains a reset_token and open the reset panel */
+function checkResetToken() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('reset_token') && params.get('email')) {
+        openAuthModal('reset');
+    }
+}
+
 window.toggleFavorite = function (munId, e) {
     if (e) e.stopPropagation(); // prevent card click
     const idx = favoriteMuns.indexOf(munId);
@@ -1309,6 +1534,8 @@ document.getElementById('searchInput').addEventListener('keydown', function (e) 
 async function init() {
     console.log("init() Started.");
     try {
+        await checkAuthState(); // ← AUTH: check if user is already logged in
+        checkResetToken();       // ← AUTH: open reset panel if URL has token
         await fetchMunicipalities();
         console.log("fetchMunicipalities completed.");
         prefetchAllData(); // background fetch for global search

@@ -62,6 +62,7 @@
                     <div class="sheet-title" id="sheetTitle">Επίλεξε Δήμο</div>
                     <div class="sheet-subtitle" id="sheetSub">Δημοτική Συγκοινωνία</div>
                 </div>
+                <button class="profile-btn" id="profileBtn" aria-label="Σύνδεση / Λογαριασμός" onclick="handleProfileBtnClick()">👤</button>
                 <img src="logo.png" alt="CityBus Logo" class="logo-icon" />
             </div>
 
@@ -98,6 +99,113 @@
                 <span class="nav-label">Χάρτης</span>
             </button>
         </nav>
+    </div>
+
+    <!-- ── AUTH MODAL ── -->
+    <div class="auth-modal" id="authModal" role="dialog" aria-modal="true" aria-label="Σύνδεση / Εγγραφή">
+        <div class="auth-card">
+
+            <!-- Close button -->
+            <button class="auth-close-btn" id="authCloseBtn" onclick="closeAuthModal()" aria-label="Κλείσιμο">×</button>
+
+            <!-- ── LOGIN PANEL ── -->
+            <div class="auth-panel" id="panelLogin">
+                <div class="auth-logo">🚌</div>
+                <h2 class="auth-title">Καλώς ήρθες!</h2>
+                <p class="auth-subtitle">Συνδέσου στον λογαριασμό σου</p>
+                <form id="loginForm" onsubmit="doLogin(event)" novalidate>
+                    <div class="auth-field">
+                        <label class="auth-label" for="loginEmail">Email</label>
+                        <input class="auth-input" id="loginEmail" type="email" placeholder="you@example.com" autocomplete="email" required />
+                    </div>
+                    <div class="auth-field">
+                        <label class="auth-label" for="loginPassword">Κωδικός</label>
+                        <input class="auth-input" id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password" required />
+                    </div>
+                    <div class="auth-error" id="loginError"></div>
+                    <button class="auth-btn" type="submit" id="loginSubmitBtn">Σύνδεση</button>
+                </form>
+                <div class="auth-links">
+                    <button class="auth-link" onclick="showPanel('forgot')">Ξέχασες τον κωδικό;</button>
+                    <span class="auth-separator">·</span>
+                    <button class="auth-link" onclick="showPanel('register')">Δημιουργία λογαριασμού</button>
+                </div>
+            </div>
+
+            <!-- ── REGISTER PANEL ── -->
+            <div class="auth-panel hidden" id="panelRegister">
+                <div class="auth-logo">✨</div>
+                <h2 class="auth-title">Δημιουργία λογαριασμού</h2>
+                <p class="auth-subtitle">Εγγραφή στο CityBus</p>
+                <form id="registerForm" onsubmit="doRegister(event)" novalidate>
+                    <div class="auth-field">
+                        <label class="auth-label" for="regEmail">Email</label>
+                        <input class="auth-input" id="regEmail" type="email" placeholder="you@example.com" autocomplete="email" required />
+                    </div>
+                    <div class="auth-field">
+                        <label class="auth-label" for="regPassword">Κωδικός</label>
+                        <input class="auth-input" id="regPassword" type="password" placeholder="Τουλάχιστον 8 χαρακτήρες" autocomplete="new-password" required />
+                    </div>
+                    <div class="auth-field">
+                        <label class="auth-label" for="regConfirm">Επιβεβαίωση κωδικού</label>
+                        <input class="auth-input" id="regConfirm" type="password" placeholder="••••••••" autocomplete="new-password" required />
+                    </div>
+                    <div class="auth-error" id="registerError"></div>
+                    <button class="auth-btn" type="submit" id="registerSubmitBtn">Εγγραφή</button>
+                </form>
+                <div class="auth-links">
+                    <button class="auth-link" onclick="showPanel('login')">Έχεις ήδη λογαριασμό; Σύνδεση</button>
+                </div>
+            </div>
+
+            <!-- ── FORGOT PASSWORD PANEL ── -->
+            <div class="auth-panel hidden" id="panelForgot">
+                <div class="auth-logo">🔑</div>
+                <h2 class="auth-title">Επαναφορά κωδικού</h2>
+                <p class="auth-subtitle">Εισάγετε το email σας για να λάβετε σύνδεσμο επαναφοράς</p>
+                <form id="forgotForm" onsubmit="doForgotPassword(event)" novalidate>
+                    <div class="auth-field">
+                        <label class="auth-label" for="forgotEmail">Email</label>
+                        <input class="auth-input" id="forgotEmail" type="email" placeholder="you@example.com" autocomplete="email" required />
+                    </div>
+                    <div class="auth-error" id="forgotError"></div>
+                    <div class="auth-success" id="forgotSuccess"></div>
+                    <button class="auth-btn" type="submit" id="forgotSubmitBtn">Αποστολή συνδέσμου</button>
+                </form>
+                <div class="auth-links">
+                    <button class="auth-link" onclick="showPanel('login')">← Πίσω στη σύνδεση</button>
+                </div>
+            </div>
+
+            <!-- ── RESET PASSWORD PANEL ── -->
+            <div class="auth-panel hidden" id="panelReset">
+                <div class="auth-logo">🔒</div>
+                <h2 class="auth-title">Νέος κωδικός</h2>
+                <p class="auth-subtitle">Ορισμός νέου κωδικού πρόσβασης</p>
+                <form id="resetForm" onsubmit="doResetPassword(event)" novalidate>
+                    <div class="auth-field">
+                        <label class="auth-label" for="resetPassword">Νέος κωδικός</label>
+                        <input class="auth-input" id="resetPassword" type="password" placeholder="Τουλάχιστον 8 χαρακτήρες" autocomplete="new-password" required />
+                    </div>
+                    <div class="auth-field">
+                        <label class="auth-label" for="resetConfirm">Επιβεβαίωση κωδικού</label>
+                        <input class="auth-input" id="resetConfirm" type="password" placeholder="••••••••" autocomplete="new-password" required />
+                    </div>
+                    <div class="auth-error" id="resetError"></div>
+                    <div class="auth-success" id="resetSuccess"></div>
+                    <button class="auth-btn" type="submit" id="resetSubmitBtn">Αλλαγή κωδικού</button>
+                </form>
+            </div>
+
+            <!-- ── PROFILE / LOGOUT PANEL ── -->
+            <div class="auth-panel hidden" id="panelProfile">
+                <div class="auth-avatar" id="profileAvatar"></div>
+                <h2 class="auth-title" id="profileEmail"></h2>
+                <p class="auth-subtitle">Συνδεδεμένος χρήστης</p>
+                <button class="auth-btn auth-btn-outline" onclick="doLogout()">Αποσύνδεση</button>
+            </div>
+
+        </div>
     </div>
 
     <script src="app.js"></script>
