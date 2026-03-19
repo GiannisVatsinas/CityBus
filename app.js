@@ -836,6 +836,8 @@ function render() {
         // Show ALL buses — selected line's bus is highlighted
         drawAllActiveBuses(municipalityId, lineKey);
         startBusRefresh(() => drawAllActiveBuses(municipalityId, lineKey));
+        // Load live crowdsourced report banner asynchronously
+        loadReportBanner(municipalityId, lineKey);
     }
 
     setSheetState(mapVisible ? 'mid' : 'full');
@@ -1045,7 +1047,21 @@ function buildLinesScreen(municipalityId) {
 function buildStopsScreen(municipalityId, lineKey) {
     const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
     const stopCount = line.stops?.length || 1;
+    const rgb = hexToRgb(line.color);
     let html = `
+        <!-- ── CROWDSOURCING REPORT BAR ── -->
+        <div class="report-bar">
+            <button class="report-btn report-btn-board" id="reportBtn-boarded"
+                onclick="submitReport('${municipalityId}', '${lineKey}', 'boarded')">
+                <span class="report-btn-icon">🙌</span>
+                <span>Επιβιβαστήκαμα</span>
+            </button>
+            <button class="report-btn report-btn-delay" id="reportBtn-delay"
+                onclick="submitReport('${municipalityId}', '${lineKey}', 'delay')">
+                <span class="report-btn-icon">⏰</span>
+                <span>Καθυστέρηση</span>
+            </button>
+        </div>
         <div class="section-label" style="color:${line.color}">Στάσεις • ${stopCount} συνολικά</div>
         <div class="stop-list" style="--lc:${line.color}">`;
 
@@ -1122,6 +1138,11 @@ function buildArrivalScreen(municipalityId, lineKey, stopId) {
     const endH = line.hours?.end || "22:00";
 
     return `
+        <!-- ── LIVE REPORT BANNER (populated async) ── -->
+        <div id="reportBanner" class="report-banner report-banner--loading">
+            <span class="report-banner-icon">📡</span>
+            <div class="report-banner-text">Φόρτωση αναφορών...</div>
+        </div>
         <div class="stop-info-card" style="--lc:${line.color}">
           <div class="stop-info-icon">🚏</div>
           <div class="stop-info-text">
