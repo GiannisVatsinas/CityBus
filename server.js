@@ -33,17 +33,7 @@ db.exec(`
         created_at         TEXT    DEFAULT (datetime('now')),
         reset_token        TEXT,
         reset_token_expires TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS live_reports (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        line_id     TEXT NOT NULL,
-        report_type TEXT NOT NULL CHECK(report_type IN ('boarded', 'delay')),
-        created_at  TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_live_reports_line_created
-        ON live_reports (line_id, created_at);
+    )
 `);
 
 // ── Express setup ─────────────────────────────────────────────────────────────
@@ -188,50 +178,6 @@ app.post('/api/reset-password', async (req, res) => {
       .run(newHash, normalizedEmail);
 
     return res.status(200).json({ message: 'Ο κωδικός σας άλλαξε επιτυχώς.' });
-});
-
-// ── POST /api/reports ────────────────────────────────────────────────────────
-app.post('/api/reports', (req, res) => {
-    const { line_id, report_type } = req.body || {};
-
-    if (typeof line_id !== 'string' || !line_id.trim())
-        return res.status(400).json({ error: 'Μη έγκυρο line_id.' });
-    if (report_type !== 'boarded' && report_type !== 'delay')
-        return res.status(400).json({ error: 'Μη έγκυρος τύπος αναφοράς.' });
-
-    db.prepare('INSERT INTO live_reports (line_id, report_type) VALUES (?, ?)')
-      .run(line_id.trim(), report_type);
-
-    return res.status(201).json({ ok: true });
-});
-
-// ── GET /api/reports/:lineId ──────────────────────────────────────────────────
-app.get('/api/reports/:lineId', (req, res) => {
-    const lineId = req.params.lineId;
-
-    // Use SQLite's own datetime arithmetic — avoids JS/SQLite format mismatch
-    const rows = db.prepare(
-        `SELECT report_type, created_at FROM live_reports
-         WHERE line_id = ? AND created_at >= datetime('now', '-1 hour')
-         ORDER BY created_at DESC`
-    ).all(lineId);
-
-    if (rows.length === 0)
-        return res.status(200).json({ boarded: 0, delay: 0, latest: null });
-
-    const boarded = rows.filter(r => r.report_type === 'boarded').length;
-    const delay   = rows.filter(r => r.report_type === 'delay').length;
-    const latest  = rows[0]; // most recent (sorted DESC)
-
-    // SQLite stores UTC as "YYYY-MM-DD HH:MM:SS" — parse it correctly
-    const latestDate = new Date(latest.created_at.replace(' ', 'T') + 'Z');
-    const minutesAgo = Math.max(0, Math.round((Date.now() - latestDate.getTime()) / 60000));
-
-    return res.status(200).json({
-        boarded,
-        delay,
-        latest: { type: latest.report_type, minutes_ago: minutesAgo }
-    });
 });
 
 // ── Start server ──────────────────────────────────────────────────────────────

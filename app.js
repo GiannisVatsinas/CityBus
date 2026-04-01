@@ -836,8 +836,6 @@ function render() {
         // Show ALL buses — selected line's bus is highlighted
         drawAllActiveBuses(municipalityId, lineKey);
         startBusRefresh(() => drawAllActiveBuses(municipalityId, lineKey));
-        // Load live crowdsourced report banner asynchronously
-        loadReportBanner(municipalityId, lineKey);
     }
 
     setSheetState(mapVisible ? 'mid' : 'full');
@@ -1047,21 +1045,7 @@ function buildLinesScreen(municipalityId) {
 function buildStopsScreen(municipalityId, lineKey) {
     const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
     const stopCount = line.stops?.length || 1;
-    const rgb = hexToRgb(line.color);
     let html = `
-        <!-- ── CROWDSOURCING REPORT BAR ── -->
-        <div class="report-bar">
-            <button class="report-btn report-btn-board" id="reportBtn-boarded"
-                onclick="submitReport('${municipalityId}', '${lineKey}', 'boarded')">
-                <span class="report-btn-icon">🙌</span>
-                <span>Επιβιβαστήκαμα</span>
-            </button>
-            <button class="report-btn report-btn-delay" id="reportBtn-delay"
-                onclick="submitReport('${municipalityId}', '${lineKey}', 'delay')">
-                <span class="report-btn-icon">⏰</span>
-                <span>Καθυστέρηση</span>
-            </button>
-        </div>
         <div class="section-label" style="color:${line.color}">Στάσεις • ${stopCount} συνολικά</div>
         <div class="stop-list" style="--lc:${line.color}">`;
 
@@ -1138,11 +1122,6 @@ function buildArrivalScreen(municipalityId, lineKey, stopId) {
     const endH = line.hours?.end || "22:00";
 
     return `
-        <!-- ── LIVE REPORT BANNER (populated async) ── -->
-        <div id="reportBanner" class="report-banner report-banner--loading">
-            <span class="report-banner-icon">📡</span>
-            <div class="report-banner-text">Φόρτωση αναφορών...</div>
-        </div>
         <div class="stop-info-card" style="--lc:${line.color}">
           <div class="stop-info-icon">🚏</div>
           <div class="stop-info-text">
@@ -1252,30 +1231,47 @@ document.getElementById('backBtn').addEventListener('click', () => {
 async function fetchMunicipalities() {
     console.log("fetchMunicipalities starting (API)...");
     try {
-        const response = await fetch(`${API_BASE_URL}/transport-api`);
-        const data = await response.json();
+        // Fetch summary list (for names, regions, totalRoutes)
+        const [summaryRes, mapRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/transport-api`),
+            fetch(`${API_BASE_URL}/transport-api?overview=map`)
+        ]);
+        const summaryData = await summaryRes.json();
+        const mapData = await mapRes.json();
 
-        // Convert API format to app format
+        // Build a lookup of slug → coordinates from the map overview endpoint
+        const coordsBySlug = {};
+        (mapData.municipalities || []).forEach(m => {
+            coordsBySlug[m.slug] = [Number(m.latitude), Number(m.longitude)];
+        });
+
         const formatted = {};
-        const defaultCenters = {
-            'nea-smyrni': [37.948, 23.713],
-            'palaio-faliro': [37.925, 23.698],
-            'athens': [37.9838, 23.7275],
-            'thessaloniki': [40.6401, 22.9444]
-        };
-        data.municipalities.forEach(m => {
-            const mId = m.id;
+        (summaryData.municipalities || []).forEach(m => {
+            // API uses m.id as the slug (e.g. "naxos", "athens")
+            const mSlug = m.id;
             const mName = m.municipality;
-            formatted[mId] = {
-                id: mId,
+
+            // Use map-overview coords (most accurate), fallback to static list
+            const defaultCenters = {
+                'nea-smyrni':   [37.948, 23.713],
+                'palaio-faliro':[37.925, 23.698],
+                'athens':       [37.9838, 23.7275],
+                'thessaloniki': [40.6401, 22.9444],
+                'naxos':        [37.1065, 25.3753]
+            };
+            const center = coordsBySlug[mSlug] || defaultCenters[mSlug] || [37.9838, 23.7275];
+
+            formatted[mSlug] = {
+                id: mSlug,
+                slug: m.slug || mSlug,
                 name: mName,
                 region: m.region,
                 totalRoutes: m.totalRoutes,
-                center: defaultCenters[mId] || [37.9838, 23.7275], 
-                lines: MUNICIPALITIES_DATA[mId]?.lines || {}
+                center: center,
+                lines: MUNICIPALITIES_DATA[mSlug]?.lines || {}
             };
         });
-        
+
         MUNICIPALITIES_DATA = { ...MUNICIPALITIES_DATA, ...formatted };
         console.log("fetchMunicipalities completed. Loaded municipalities:", Object.keys(MUNICIPALITIES_DATA));
     } catch (e) {
@@ -1287,17 +1283,23 @@ async function fetchMunicipalities() {
 async function fetchLines(municipalityId) {
     console.log(`fetchLines for ${municipalityId} (API)...`);
     try {
+        // Use the municipality slug (which is also the id in our app)
         const response = await fetch(`${API_BASE_URL}/transport-api?municipality=${municipalityId}`);
         const data = await response.json();
 
+        if (data.error) {
+            console.warn(`fetchLines: API error for ${municipalityId}:`, data.error);
+            return;
+        }
+
         const mun = MUNICIPALITIES_DATA[municipalityId];
+        if (!mun) return;
         if (!mun.lines) mun.lines = {};
 
-        data.routes.forEach(r => {
+        (data.routes || []).forEach(r => {
             if (!mun.lines[r.id]) {
                 mun.lines[r.id] = { stops: [] };
             }
-            
             Object.assign(mun.lines[r.id], {
                 id: r.id,
                 code: r.code,
@@ -1305,7 +1307,8 @@ async function fetchLines(municipalityId) {
                 color: r.status === 'delayed' ? '#ef4444' : '#3b7ef6',
                 freq: r.frequency_minutes || 20,
                 status: r.status,
-                totalStops: r.total_stops || r.stops_count || null,
+                busPlate: r.bus_plate || null,
+                driverName: r.driver_name || null,
                 hours: { start: "06:00", end: "22:00" },
             });
         });
@@ -1321,14 +1324,26 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
         const response = await fetch(`${API_BASE_URL}/transport-api?route=${routeId}`);
         const data = await response.json();
 
-        const line = MUNICIPALITIES_DATA[municipalityId].lines[lineKey];
-        if (data.route?.bus_plate) line.busPlate = data.route.bus_plate;
+        if (data.error) {
+            console.warn(`fetchRouteDetails: API error for route ${routeId}:`, data.error);
+            return;
+        }
 
-        line.stops = data.stops.map(s => ({
+        const line = MUNICIPALITIES_DATA[municipalityId]?.lines?.[lineKey];
+        if (!line) return;
+
+        // Update route metadata if provided
+        if (data.route?.bus_plate)   line.busPlate   = data.route.bus_plate;
+        if (data.route?.driver_name) line.driverName = data.route.driver_name;
+        if (data.route?.frequency_minutes) line.freq = data.route.frequency_minutes;
+
+        // Map stops to app format
+        line.stops = (data.stops || []).map(s => ({
             id: s.id,
             name: s.name,
-            coords: [s.latitude, s.longitude],
+            coords: [Number(s.latitude), Number(s.longitude)],
             terminal: s.is_terminal,
+            orderIndex: s.order_index,
             departureTimes: (s.timetable || [])
                 .filter(t => t.day_type === 'weekday')
                 .map(t => {
@@ -1342,6 +1357,7 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
         console.error(`Error fetching route details for ${routeId}:`, e);
     }
 }
+
 
 
 let recentSearches = JSON.parse(localStorage.getItem('citybus_recent_searches')) || [];
