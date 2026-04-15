@@ -240,6 +240,216 @@ function checkResetToken() {
     }
 }
 
+// ═══════════════════════════════════════════════════
+//  SETTINGS MODULE
+// ═══════════════════════════════════════════════════
+
+// Map tile layers
+const MAP_TILES = {
+    light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    dark:  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+};
+let currentTileLayer = null;
+
+// Language strings (basic i18n)
+const I18N = {
+    el: {
+        selectMunicipality: 'Επίλεξε Δήμο',
+        municipalTransport: 'Δημοτική Συγκοινωνία',
+        selectLine: 'Επίλεξε Γραμμή',
+        favorites: 'Αγαπημένα',
+        myChoices: 'Οι επιλογές σου'
+    },
+    en: {
+        selectMunicipality: 'Select Municipality',
+        municipalTransport: 'City Bus Transport',
+        selectLine: 'Select Line',
+        favorites: 'Favorites',
+        myChoices: 'Your choices'
+    }
+};
+
+let appSettings = {
+    darkMap:        false,
+    showBuses:      true,
+    autoZoom:       true,
+    arrivalNotif:   false,
+    arrivalMinutes: 5,
+    delayNotif:     false,
+    language:       'el',
+    fontSize:       'normal',
+    compact:        false
+};
+
+/** Load settings from localStorage and apply them */
+function loadSettings() {
+    const saved = localStorage.getItem('citybus_settings');
+    if (saved) {
+        try { Object.assign(appSettings, JSON.parse(saved)); } catch {}
+    }
+    // Sync checkboxes / selects
+    const get = id => document.getElementById(id);
+    if (get('settingDarkMap'))        get('settingDarkMap').checked        = appSettings.darkMap;
+    if (get('settingShowBuses'))      get('settingShowBuses').checked      = appSettings.showBuses;
+    if (get('settingAutoZoom'))       get('settingAutoZoom').checked       = appSettings.autoZoom;
+    if (get('settingArrivalNotif'))   get('settingArrivalNotif').checked   = appSettings.arrivalNotif;
+    if (get('settingArrivalMinutes')) get('settingArrivalMinutes').value   = appSettings.arrivalMinutes;
+    if (get('settingDelayNotif'))     get('settingDelayNotif').checked     = appSettings.delayNotif;
+    if (get('settingLanguage'))       get('settingLanguage').value         = appSettings.language;
+    if (get('settingFontSize'))       get('settingFontSize').value         = appSettings.fontSize;
+    if (get('settingCompact'))        get('settingCompact').checked        = appSettings.compact;
+
+    // Show/hide arrival minutes row
+    const minRow = get('arrivalMinutesRow');
+    if (minRow) minRow.style.display = appSettings.arrivalNotif ? 'flex' : 'none';
+
+    // Apply visual effects on load
+    _applyMapTheme(appSettings.darkMap);
+    _applyFontSize(appSettings.fontSize);
+    _applyCompact(appSettings.compact);
+    if (!appSettings.showBuses) clearBusMarkers();
+}
+
+/** Called whenever any setting changes */
+window.applySettings = function () {
+    const get = id => document.getElementById(id);
+    const prev = { ...appSettings };
+
+    appSettings.darkMap        = get('settingDarkMap')?.checked        ?? appSettings.darkMap;
+    appSettings.showBuses      = get('settingShowBuses')?.checked      ?? appSettings.showBuses;
+    appSettings.autoZoom       = get('settingAutoZoom')?.checked       ?? appSettings.autoZoom;
+    appSettings.arrivalNotif   = get('settingArrivalNotif')?.checked   ?? appSettings.arrivalNotif;
+    appSettings.arrivalMinutes = Number(get('settingArrivalMinutes')?.value) || 5;
+    appSettings.delayNotif     = get('settingDelayNotif')?.checked     ?? appSettings.delayNotif;
+    appSettings.language       = get('settingLanguage')?.value         || 'el';
+    appSettings.fontSize       = get('settingFontSize')?.value         || 'normal';
+    appSettings.compact        = get('settingCompact')?.checked        ?? appSettings.compact;
+
+    // Show/hide arrival minutes sub-row
+    const minRow = get('arrivalMinutesRow');
+    if (minRow) minRow.style.display = appSettings.arrivalNotif ? 'flex' : 'none';
+
+    // Apply map theme
+    if (prev.darkMap !== appSettings.darkMap) _applyMapTheme(appSettings.darkMap);
+
+    // Bus markers visibility
+    if (!appSettings.showBuses) {
+        clearBusMarkers();
+    } else if (prev.showBuses !== appSettings.showBuses) {
+        // Re-draw buses for current screen
+        const { screen, municipalityId, lineKey } = state;
+        if (screen === 'lines')   drawAllActiveBuses(municipalityId, null);
+        if (screen === 'stops' || screen === 'arrival') drawAllActiveBuses(municipalityId, lineKey);
+    }
+
+    // Notifications: request permission if toggled on
+    if (appSettings.arrivalNotif || appSettings.delayNotif) {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    }
+
+    // Font size
+    _applyFontSize(appSettings.fontSize);
+
+    // Compact mode
+    _applyCompact(appSettings.compact);
+
+    // Persist
+    localStorage.setItem('citybus_settings', JSON.stringify(appSettings));
+
+    // Flash save message
+    const msg = get('settingsSaveMsg');
+    if (msg) {
+        msg.textContent = '✅ Αποθηκεύτηκε';
+        msg.classList.add('show');
+        clearTimeout(msg._t);
+        msg._t = setTimeout(() => msg.classList.remove('show'), 1800);
+    }
+};
+
+function _applyMapTheme(dark) {
+    if (currentTileLayer) map.removeLayer(currentTileLayer);
+    currentTileLayer = L.tileLayer(dark ? MAP_TILES.dark : MAP_TILES.light, {
+        attribution: '© Carto © OpenStreetMap', maxZoom: 19
+    }).addTo(map);
+}
+
+function _applyFontSize(size) {
+    document.body.classList.remove('font-small', 'font-large');
+    if (size === 'small') document.body.classList.add('font-small');
+    if (size === 'large') document.body.classList.add('font-large');
+}
+
+function _applyCompact(on) {
+    document.body.classList.toggle('compact', on);
+}
+
+/** Open the settings bottom sheet */
+window.openSettingsModal = function () {
+    loadSettings(); // sync UI with current values
+    document.getElementById('settingsModal').classList.add('visible');
+};
+
+/** Close the settings bottom sheet */
+window.closeSettingsModal = function () {
+    document.getElementById('settingsModal').classList.remove('visible');
+};
+
+// Close when clicking backdrop
+document.getElementById('settingsModal').addEventListener('click', function (e) {
+    if (e.target === this) closeSettingsModal();
+});
+
+/** Clear recent searches */
+window.clearRecentSearches = function () {
+    recentSearches = [];
+    localStorage.removeItem('citybus_recent_searches');
+    const msg = document.getElementById('settingsSaveMsg');
+    if (msg) {
+        msg.textContent = '✅ Ιστορικό εκκαθαρίστηκε';
+        msg.classList.add('show');
+        clearTimeout(msg._t);
+        msg._t = setTimeout(() => msg.classList.remove('show'), 1800);
+    }
+};
+
+/** Clear ALL favorites */
+window.clearAllFavorites = function () {
+    if (!confirm('Να διαγραφούν όλα τα αγαπημένα;')) return;
+    favoriteMuns  = [];
+    favoriteLines = [];
+    favoriteStops = [];
+    localStorage.removeItem('favoriteMuns');
+    localStorage.removeItem('favoriteLines');
+    localStorage.removeItem('favoriteStops');
+    if (state.screen === 'favorites') render();
+    const msg = document.getElementById('settingsSaveMsg');
+    if (msg) {
+        msg.textContent = '✅ Αγαπημένα διαγράφηκαν';
+        msg.classList.add('show');
+        clearTimeout(msg._t);
+        msg._t = setTimeout(() => msg.classList.remove('show'), 1800);
+    }
+};
+
+/** Export favorites as a JSON file */
+window.exportFavorites = function () {
+    const data = {
+        exportedAt: new Date().toISOString(),
+        favoriteMuns,
+        favoriteLines,
+        favoriteStops
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'citybus_favorites.json';
+    a.click();
+    URL.revokeObjectURL(url);
+};
+
 window.toggleFavorite = function (munId, e) {
     if (e) e.stopPropagation(); // prevent card click
     const idx = favoriteMuns.indexOf(munId);
@@ -282,7 +492,8 @@ window.toggleFavoriteStop = function (munId, lineKey, stopId, e) {
 //  MAP INIT
 // ═══════════════════════════════════════════════════
 const map = L.map('map', { zoomControl: false }).setView([37.935, 23.715], 13);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+// Tile layer is managed by the Settings module (_applyMapTheme)
+currentTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     attribution: '© Carto © OpenStreetMap', maxZoom: 19,
 }).addTo(map);
 L.control.zoom({ position: 'topright' }).addTo(map);
@@ -1573,6 +1784,7 @@ async function init() {
     try {
         await checkAuthState(); // ← AUTH: check if user is already logged in
         checkResetToken();       // ← AUTH: open reset panel if URL has token
+        loadSettings();          // ← SETTINGS: apply saved user preferences
         await fetchMunicipalities();
         console.log("fetchMunicipalities completed.");
         prefetchAllData(); // background fetch for global search

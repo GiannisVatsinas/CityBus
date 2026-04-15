@@ -98,7 +98,157 @@
                 <span class="nav-icon">🗺️</span>
                 <span class="nav-label">Χάρτης</span>
             </button>
+            <button class="nav-tab" id="navSettings" onclick="openSettingsModal()">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-label">Ρυθμίσεις</span>
+            </button>
         </nav>
+    </div>
+
+    <!-- ── SETTINGS MODAL ── -->
+    <div class="settings-modal" id="settingsModal" role="dialog" aria-modal="true" aria-label="Ρυθμίσεις">
+        <div class="settings-card">
+            <div class="settings-header">
+                <h2 class="settings-title">⚙️ Ρυθμίσεις</h2>
+                <button class="settings-close-btn" onclick="closeSettingsModal()" aria-label="Κλείσιμο">×</button>
+            </div>
+
+            <!-- 1. MAP SETTINGS -->
+            <div class="settings-section">
+                <div class="settings-section-title">🗺️ Χάρτης</div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Σκοτεινός Χάρτης</div>
+                        <div class="settings-row-sub">Αλλαγή θέματος χάρτη</div>
+                    </div>
+                    <label class="toggle-switch" id="toggleDarkMap">
+                        <input type="checkbox" id="settingDarkMap" onchange="applySettings()" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Εμφάνιση Λεωφορείων</div>
+                        <div class="settings-row-sub">Εικονίδια live θέσης στον χάρτη</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="settingShowBuses" checked onchange="applySettings()" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Αυτόματο Ζουμ</div>
+                        <div class="settings-row-sub">Ο χάρτης κεντράρει αυτόματα</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="settingAutoZoom" checked onchange="applySettings()" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 2. NOTIFICATIONS -->
+            <div class="settings-section">
+                <div class="settings-section-title">🔔 Ειδοποιήσεις</div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Ειδοποίηση Άφιξης</div>
+                        <div class="settings-row-sub">Ειδοποίηση όταν πλησιάζει λεωφορείο</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="settingArrivalNotif" onchange="applySettings()" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="settings-row" id="arrivalMinutesRow" style="display:none">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Ειδοποίηση X λεπτά πριν</div>
+                    </div>
+                    <select class="settings-select" id="settingArrivalMinutes" onchange="applySettings()">
+                        <option value="2">2 λεπτά</option>
+                        <option value="5" selected>5 λεπτά</option>
+                        <option value="10">10 λεπτά</option>
+                    </select>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Καθυστερήσεις</div>
+                        <div class="settings-row-sub">Ειδοποίηση για delayed γραμμές</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="settingDelayNotif" onchange="applySettings()" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 3. DATA MANAGEMENT -->
+            <div class="settings-section">
+                <div class="settings-section-title">📦 Δεδομένα & Απόρρητο</div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Εκκαθάριση Ιστορικού</div>
+                        <div class="settings-row-sub">Διαγραφή πρόσφατων αναζητήσεων</div>
+                    </div>
+                    <button class="settings-action-btn" onclick="clearRecentSearches()">Εκκαθάριση</button>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Διαγραφή Αγαπημένων</div>
+                        <div class="settings-row-sub">Αφαίρεση όλων των αγαπημένων</div>
+                    </div>
+                    <button class="settings-action-btn settings-action-btn--danger" onclick="clearAllFavorites()">Διαγραφή</button>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Εξαγωγή Αγαπημένων</div>
+                        <div class="settings-row-sub">Αποθήκευση ως αρχείο JSON</div>
+                    </div>
+                    <button class="settings-action-btn" onclick="exportFavorites()">Εξαγωγή</button>
+                </div>
+            </div>
+
+            <!-- 4. UI / LANGUAGE -->
+            <div class="settings-section">
+                <div class="settings-section-title">🎨 Εμφάνιση & Γλώσσα</div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Γλώσσα</div>
+                        <div class="settings-row-sub">Γλώσσα εφαρμογής</div>
+                    </div>
+                    <select class="settings-select" id="settingLanguage" onchange="applySettings()">
+                        <option value="el" selected>🇬🇷 Ελληνικά</option>
+                        <option value="en">🇬🇧 English</option>
+                    </select>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Μέγεθος Γραμματοσειράς</div>
+                        <div class="settings-row-sub">Αλλαγή μεγέθους κειμένου</div>
+                    </div>
+                    <select class="settings-select" id="settingFontSize" onchange="applySettings()">
+                        <option value="small">Μικρό</option>
+                        <option value="normal" selected>Κανονικό</option>
+                        <option value="large">Μεγάλο</option>
+                    </select>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Compact Mode</div>
+                        <div class="settings-row-sub">Συμπαγής εμφάνιση λιστών</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="settingCompact" onchange="applySettings()" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="settings-footer">
+                <span id="settingsSaveMsg" class="settings-save-msg"></span>
+            </div>
+        </div>
     </div>
 
     <!-- ── AUTH MODAL ── -->
