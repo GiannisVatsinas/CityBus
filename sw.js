@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════
 //  CityBus Service Worker – Offline-first strategy
 // ═══════════════════════════════════════════════════
-const CACHE_NAME = 'citybus-v6';
+const CACHE_NAME = 'citybus-v10';
 
 // Files to cache immediately on install (app shell)
 const SHELL_FILES = [

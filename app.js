@@ -101,10 +101,10 @@ function setSubmitLoading(btnId, loading, originalText) {
 /** POST /api/register */
 window.doRegister = async function (e) {
     e.preventDefault();
-    const email    = document.getElementById('regEmail').value.trim();
+    const email = document.getElementById('regEmail').value.trim();
     const password = document.getElementById('regPassword').value;
-    const confirm  = document.getElementById('regConfirm').value;
-    const errorEl  = document.getElementById('registerError');
+    const confirm = document.getElementById('regConfirm').value;
+    const errorEl = document.getElementById('registerError');
     errorEl.textContent = '';
 
     if (password !== confirm) {
@@ -134,9 +134,9 @@ window.doRegister = async function (e) {
 /** POST /api/login */
 window.doLogin = async function (e) {
     e.preventDefault();
-    const email    = document.getElementById('loginEmail').value.trim();
+    const email = document.getElementById('loginEmail').value.trim();
     const password = document.getElementById('loginPassword').value;
-    const errorEl  = document.getElementById('loginError');
+    const errorEl = document.getElementById('loginError');
     errorEl.textContent = '';
 
     setSubmitLoading('loginSubmitBtn', true, 'Σύνδεση');
@@ -172,7 +172,7 @@ window.doLogout = async function () {
 /** POST /api/forgot-password */
 window.doForgotPassword = async function (e) {
     e.preventDefault();
-    const email   = document.getElementById('forgotEmail').value.trim();
+    const email = document.getElementById('forgotEmail').value.trim();
     const errorEl = document.getElementById('forgotError');
     const successEl = document.getElementById('forgotSuccess');
     errorEl.textContent = '';
@@ -199,12 +199,12 @@ window.doForgotPassword = async function (e) {
 /** POST /api/reset-password */
 window.doResetPassword = async function (e) {
     e.preventDefault();
-    const params   = new URLSearchParams(window.location.search);
-    const token    = params.get('reset_token');
-    const email    = params.get('email');
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('reset_token');
+    const email = params.get('email');
     const password = document.getElementById('resetPassword').value;
-    const confirm  = document.getElementById('resetConfirm').value;
-    const errorEl  = document.getElementById('resetError');
+    const confirm = document.getElementById('resetConfirm').value;
+    const errorEl = document.getElementById('resetError');
     const successEl = document.getElementById('resetSuccess');
     errorEl.textContent = '';
     successEl.textContent = '';
@@ -247,7 +247,7 @@ function checkResetToken() {
 // Map tile layers
 const MAP_TILES = {
     light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    dark:  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
 };
 let currentTileLayer = null;
 
@@ -270,34 +270,34 @@ const I18N = {
 };
 
 let appSettings = {
-    darkMap:        false,
-    showBuses:      true,
-    autoZoom:       true,
-    arrivalNotif:   false,
+    darkMap: false,
+    showBuses: true,
+    autoZoom: true,
+    arrivalNotif: false,
     arrivalMinutes: 5,
-    delayNotif:     false,
-    language:       'el',
-    fontSize:       'normal',
-    compact:        false
+    delayNotif: false,
+    language: 'el',
+    fontSize: 'normal',
+    compact: false
 };
 
 /** Load settings from localStorage and apply them */
 function loadSettings() {
     const saved = localStorage.getItem('citybus_settings');
     if (saved) {
-        try { Object.assign(appSettings, JSON.parse(saved)); } catch {}
+        try { Object.assign(appSettings, JSON.parse(saved)); } catch { }
     }
     // Sync checkboxes / selects
     const get = id => document.getElementById(id);
-    if (get('settingDarkMap'))        get('settingDarkMap').checked        = appSettings.darkMap;
-    if (get('settingShowBuses'))      get('settingShowBuses').checked      = appSettings.showBuses;
-    if (get('settingAutoZoom'))       get('settingAutoZoom').checked       = appSettings.autoZoom;
-    if (get('settingArrivalNotif'))   get('settingArrivalNotif').checked   = appSettings.arrivalNotif;
-    if (get('settingArrivalMinutes')) get('settingArrivalMinutes').value   = appSettings.arrivalMinutes;
-    if (get('settingDelayNotif'))     get('settingDelayNotif').checked     = appSettings.delayNotif;
-    if (get('settingLanguage'))       get('settingLanguage').value         = appSettings.language;
-    if (get('settingFontSize'))       get('settingFontSize').value         = appSettings.fontSize;
-    if (get('settingCompact'))        get('settingCompact').checked        = appSettings.compact;
+    if (get('settingDarkMap')) get('settingDarkMap').checked = appSettings.darkMap;
+    if (get('settingShowBuses')) get('settingShowBuses').checked = appSettings.showBuses;
+    if (get('settingAutoZoom')) get('settingAutoZoom').checked = appSettings.autoZoom;
+    if (get('settingArrivalNotif')) get('settingArrivalNotif').checked = appSettings.arrivalNotif;
+    if (get('settingArrivalMinutes')) get('settingArrivalMinutes').value = appSettings.arrivalMinutes;
+    if (get('settingDelayNotif')) get('settingDelayNotif').checked = appSettings.delayNotif;
+    if (get('settingLanguage')) get('settingLanguage').value = appSettings.language;
+    if (get('settingFontSize')) get('settingFontSize').value = appSettings.fontSize;
+    if (get('settingCompact')) get('settingCompact').checked = appSettings.compact;
 
     // Show/hide arrival minutes row
     const minRow = get('arrivalMinutesRow');
@@ -315,15 +315,15 @@ window.applySettings = function () {
     const get = id => document.getElementById(id);
     const prev = { ...appSettings };
 
-    appSettings.darkMap        = get('settingDarkMap')?.checked        ?? appSettings.darkMap;
-    appSettings.showBuses      = get('settingShowBuses')?.checked      ?? appSettings.showBuses;
-    appSettings.autoZoom       = get('settingAutoZoom')?.checked       ?? appSettings.autoZoom;
-    appSettings.arrivalNotif   = get('settingArrivalNotif')?.checked   ?? appSettings.arrivalNotif;
+    appSettings.darkMap = get('settingDarkMap')?.checked ?? appSettings.darkMap;
+    appSettings.showBuses = get('settingShowBuses')?.checked ?? appSettings.showBuses;
+    appSettings.autoZoom = get('settingAutoZoom')?.checked ?? appSettings.autoZoom;
+    appSettings.arrivalNotif = get('settingArrivalNotif')?.checked ?? appSettings.arrivalNotif;
     appSettings.arrivalMinutes = Number(get('settingArrivalMinutes')?.value) || 5;
-    appSettings.delayNotif     = get('settingDelayNotif')?.checked     ?? appSettings.delayNotif;
-    appSettings.language       = get('settingLanguage')?.value         || 'el';
-    appSettings.fontSize       = get('settingFontSize')?.value         || 'normal';
-    appSettings.compact        = get('settingCompact')?.checked        ?? appSettings.compact;
+    appSettings.delayNotif = get('settingDelayNotif')?.checked ?? appSettings.delayNotif;
+    appSettings.language = get('settingLanguage')?.value || 'el';
+    appSettings.fontSize = get('settingFontSize')?.value || 'normal';
+    appSettings.compact = get('settingCompact')?.checked ?? appSettings.compact;
 
     // Show/hide arrival minutes sub-row
     const minRow = get('arrivalMinutesRow');
@@ -338,7 +338,7 @@ window.applySettings = function () {
     } else if (prev.showBuses !== appSettings.showBuses) {
         // Re-draw buses for current screen
         const { screen, municipalityId, lineKey } = state;
-        if (screen === 'lines')   drawAllActiveBuses(municipalityId, null);
+        if (screen === 'lines') drawAllActiveBuses(municipalityId, null);
         if (screen === 'stops' || screen === 'arrival') drawAllActiveBuses(municipalityId, lineKey);
     }
 
@@ -417,7 +417,7 @@ window.clearRecentSearches = function () {
 /** Clear ALL favorites */
 window.clearAllFavorites = function () {
     if (!confirm('Να διαγραφούν όλα τα αγαπημένα;')) return;
-    favoriteMuns  = [];
+    favoriteMuns = [];
     favoriteLines = [];
     favoriteStops = [];
     localStorage.removeItem('favoriteMuns');
@@ -442,9 +442,9 @@ window.exportFavorites = function () {
         favoriteStops
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
     a.download = 'citybus_favorites.json';
     a.click();
     URL.revokeObjectURL(url);
@@ -582,9 +582,38 @@ function drawMunicipalitiesOverview() {
         .map(m => m.center);
     if (coords.length > 0) map.fitBounds(L.latLngBounds(coords), { padding: [50, 50] });
 }
+const osrmCache = {};
+
+async function getOSRMRouteGeometry(coords, routeId) {
+    if (!coords || coords.length < 2) return coords;
+    const cacheKey = routeId || coords.map(c => c.join(',')).join('|');
+    if (osrmCache[cacheKey]) return osrmCache[cacheKey];
+
+    try {
+        // OSRM expects: longitude,latitude;longitude,latitude...
+        const coordString = coords.map(c => `${c[1]},${c[0]}`).join(';');
+        const url = `http://router.project-osrm.org/route/v1/driving/${coordString}?geometries=geojson&overview=full`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+            console.warn("OSRM routing failed, falling back to straight lines.", data);
+            return coords;
+        }
+
+        // Convert GeoJSON [lng, lat] back to Leaflet [lat, lng]
+        const routeCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+        osrmCache[cacheKey] = routeCoords;
+        return routeCoords;
+    } catch (e) {
+        console.warn("Error fetching OSRM route, falling back to straight lines.", e);
+        return coords;
+    }
+}
 
 // Draw all routes of a municipality clearly
-function drawAllMunicipalityRoutes(municipalityId) {
+async function drawAllMunicipalityRoutes(municipalityId) {
     console.log(`drawAllMunicipalityRoutes for ${municipalityId}...`);
     clearMapLayers();
     const mun = MUNICIPALITIES_DATA[municipalityId];
@@ -592,15 +621,16 @@ function drawAllMunicipalityRoutes(municipalityId) {
         console.warn(`No data for municipality ${municipalityId}`);
         return;
     }
-    
+
     const allCoords = [];
-    Object.entries(mun.lines).forEach(([lineKey, line]) => {
+    const routePromises = Object.entries(mun.lines).map(async ([lineKey, line]) => {
         const coords = line.stops.map(s => s.coords).filter(c => c && c[0] !== null && c[1] !== null);
         console.log(`  Line ${lineKey}: ${coords.length} valid stops`);
         if (coords.length > 1) {
-            allCoords.push(...coords);
+            const routeCoords = await getOSRMRouteGeometry(coords, `${municipalityId}_${lineKey}`);
+            allCoords.push(...routeCoords);
             // Solid, semi-transparent lines
-            addToMap(L.polyline(coords, { color: line.color, weight: 4.5, opacity: 0.6 }));
+            addToMap(L.polyline(routeCoords, { color: line.color, weight: 4.5, opacity: 0.6 }));
         }
         line.stops.forEach(s => {
             if (!s.coords || s.coords[0] === null || s.coords[1] === null) return;
@@ -612,6 +642,8 @@ function drawAllMunicipalityRoutes(municipalityId) {
             addToMap(marker);
         });
     });
+    
+    await Promise.all(routePromises);
 
     if (allCoords.length > 0) {
         console.log(`  Fitting map to ${allCoords.length} points...`);
@@ -622,7 +654,7 @@ function drawAllMunicipalityRoutes(municipalityId) {
     }
 }
 
-function drawLine(municipalityId, lineKey, selectedStopId = null) {
+async function drawLine(municipalityId, lineKey, selectedStopId = null) {
     clearMapLayers();
     const mun = MUNICIPALITIES_DATA[municipalityId];
     if (!mun || !mun.lines || !mun.lines[lineKey]) return;
@@ -630,9 +662,11 @@ function drawLine(municipalityId, lineKey, selectedStopId = null) {
     const coords = line.stops.map(s => s.coords).filter(c => c && c[0] !== null && c[1] !== null);
     if (coords.length === 0) return;
 
+    let routeCoords = coords;
     if (coords.length > 1) {
-        addToMap(L.polyline(coords, { color: line.color, weight: 12, opacity: 0.12 }));
-        addToMap(L.polyline(coords, { color: line.color, weight: 4, opacity: 0.9 }));
+        routeCoords = await getOSRMRouteGeometry(coords, `${municipalityId}_${lineKey}`);
+        addToMap(L.polyline(routeCoords, { color: line.color, weight: 12, opacity: 0.12 }));
+        addToMap(L.polyline(routeCoords, { color: line.color, weight: 4, opacity: 0.9 }));
     }
 
     line.stops.forEach(s => {
@@ -673,8 +707,8 @@ function drawLine(municipalityId, lineKey, selectedStopId = null) {
     const pad = isMobile
         ? [40, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-mid') || '55') * window.innerHeight / 100 + 20]
         : [60, 60];
-    if (coords.length > 0) {
-        const bounds = L.latLngBounds(coords);
+    if (routeCoords.length > 0) {
+        const bounds = L.latLngBounds(routeCoords);
         map.fitBounds(bounds, { paddingTopLeft: [pad[0], pad[0]], paddingBottomRight: [pad[0], pad[1]] });
     }
 }
@@ -952,7 +986,7 @@ async function navigate(screen, municipalityId = state.municipalityId, lineKey =
     state.municipalityId = municipalityId;
     state.lineKey = lineKey;
     state.stopId = stopId;
-    
+
     if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
     stopBusRefresh();
 
@@ -1464,11 +1498,11 @@ async function fetchMunicipalities() {
 
             // Use map-overview coords (most accurate), fallback to static list
             const defaultCenters = {
-                'nea-smyrni':   [37.948, 23.713],
-                'palaio-faliro':[37.925, 23.698],
-                'athens':       [37.9838, 23.7275],
+                'nea-smyrni': [37.948, 23.713],
+                'palaio-faliro': [37.925, 23.698],
+                'athens': [37.9838, 23.7275],
                 'thessaloniki': [40.6401, 22.9444],
-                'naxos':        [37.1065, 25.3753]
+                'naxos': [37.1065, 25.3753]
             };
             const center = coordsBySlug[mSlug] || defaultCenters[mSlug] || [37.9838, 23.7275];
 
@@ -1544,7 +1578,7 @@ async function fetchRouteDetails(municipalityId, lineKey, routeId) {
         if (!line) return;
 
         // Update route metadata if provided
-        if (data.route?.bus_plate)   line.busPlate   = data.route.bus_plate;
+        if (data.route?.bus_plate) line.busPlate = data.route.bus_plate;
         if (data.route?.driver_name) line.driverName = data.route.driver_name;
         if (data.route?.frequency_minutes) line.freq = data.route.frequency_minutes;
 
@@ -1607,7 +1641,7 @@ async function prefetchAllData() {
         }));
         await Promise.all(muns.map(munId => prefetchAllRoutes(munId)));
         isDataPrefetched = true;
-        
+
         // If search is currently visible, update results
         const searchOverlay = document.getElementById('searchOverlay');
         if (searchOverlay && searchOverlay.classList.contains('visible')) {
