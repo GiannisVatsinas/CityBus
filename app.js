@@ -717,19 +717,51 @@ async function drawLine(municipalityId, lineKey, selectedStopId = null) {
 //  HELPERS
 // ═══════════════════════════════════════════════════
 // stopIndex: position of this stop along the route (0-based)
-// stopCount: total stops in the route
 // Returns minutes until the bus reaches this specific stop
-function minutesUntil(freq, stopIndex = 0, stopCount = 1) {
-    if (!freq) freq = 15;
+function minutesUntil(line, stopIndex = 0) {
+    if (!line || !line.stops || line.stops.length === 0) {
+        let freq = line && line.freq ? line.freq : 15;
+        const now = new Date();
+        const base = freq - (now.getMinutes() % freq);
+        return base === freq ? 0 : base;
+    }
+
+    const stops = line.stops;
     const now = new Date();
-    // base minutes until next departure from first stop
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+
+    let firstStopTimes = stops[0]?.departureTimes;
+    if (firstStopTimes && firstStopTimes.length > 0) {
+        let stopTimes = stops[stopIndex]?.departureTimes;
+        
+        // INTERPOLATE if intermediate stop doesn't have explicit departureTimes
+        if (!stopTimes || stopTimes.length === 0) {
+            let routeDurationMin;
+            const lastStopTimes = stops[stops.length - 1]?.departureTimes || [];
+            if (lastStopTimes.length > 0 && lastStopTimes[0] >= firstStopTimes[0]) {
+                routeDurationMin = Math.max(5, lastStopTimes[0] - firstStopTimes[0]);
+            } else {
+                routeDurationMin = (line.freq || 15) * 0.7; // Fallback ~70% of frequency
+            }
+            
+            const offset = stopIndex * (routeDurationMin / Math.max(1, stops.length - 1));
+            stopTimes = firstStopTimes.map(t => Math.round(t + offset));
+        }
+
+        const nextDep = stopTimes.find(t => t >= nowMins);
+        if (nextDep !== undefined) {
+             return nextDep - nowMins;
+        }
+        return (stopTimes[0] + 1440) - nowMins;
+    }
+
+    // --- FALLBACK TO FREQUENCY ESTIMATION ---
+    let freq = line.freq || 15;
     const base = freq - (now.getMinutes() % freq);
     const baseMin = base === freq ? 0 : base;
-    // average time between consecutive stops (assume full route takes ~0.7 * freq)
-    const avgInterval = stopCount > 1 ? Math.round((freq * 0.7) / (stopCount - 1)) : 0;
+    const avgInterval = Math.round((freq * 0.7) / Math.max(1, stops.length - 1));
     const offset = stopIndex * avgInterval;
-    const total = (baseMin + offset) % freq;
-    return total;
+    return (baseMin + offset) % freq;
 }
 
 // ═══════════════════════════════════════════════════
@@ -905,7 +937,29 @@ function stopBusRefresh() {
     if (busRefreshInterval) { clearInterval(busRefreshInterval); busRefreshInterval = null; }
 }
 
-function buildSchedule(line, nowMins) {
+function buildSchedule(line, nowMins, stopIndex = 0) {
+    if (line.stops && line.stops.length > 0) {
+        const firstStopTimes = line.stops[0].departureTimes;
+        if (firstStopTimes && firstStopTimes.length > 0) {
+            let stopTimes = line.stops[stopIndex]?.departureTimes;
+            if (!stopTimes || stopTimes.length === 0) {
+                let routeDurationMin;
+                const lastStopTimes = line.stops[line.stops.length - 1]?.departureTimes || [];
+                if (lastStopTimes.length > 0 && lastStopTimes[0] >= firstStopTimes[0]) {
+                    routeDurationMin = Math.max(5, lastStopTimes[0] - firstStopTimes[0]);
+                } else {
+                    routeDurationMin = (line.freq || 15) * 0.7;
+                }
+                const offset = stopIndex * (routeDurationMin / Math.max(1, line.stops.length - 1));
+                stopTimes = firstStopTimes.map(t => Math.round(t + offset));
+            }
+            return stopTimes.map(t => ({
+                label: `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`, 
+                totalMin: t
+            }));
+        }
+    }
+
     const startStr = line.hours?.start || "06:00";
     const endStr = line.hours?.end || "22:00";
     const freq = line.freq || 20;
@@ -1178,7 +1232,7 @@ function buildFavoritesScreen() {
         favLinesData.forEach(({ mun, key, line }) => {
             const rgb = hexToRgb(line.color);
             const routeTag = (line.stops && line.stops.length > 1) ? `${line.stops[0].name} → ${line.stops[line.stops.length - 1].name}` : 'Ενεργή Γραμμή';
-            const nextBus = minutesUntil(line.freq);
+            const nextBus = minutesUntil(line, 0);
             html += `
               <div class="line-card" style="--lc:${line.color}" onclick="navigate('stops', '${mun.id}', '${key}')">
                 <div class="line-badge" style="background:rgba(${rgb},0.15);color:${line.color}">${line.code || key}</div>
@@ -1217,7 +1271,7 @@ function buildFavoritesScreen() {
             const isFirst = idx === 0;
             const isLast = idx === totalStops - 1;
             const badge = isFirst ? `<span class="stop-badge start">Αφετηρία</span>` : isLast ? `<span class="stop-badge end">Τέρμα</span>` : '';
-            const nextBus = minutesUntil(line.freq, idx, totalStops);
+            const nextBus = minutesUntil(line, idx);
 
             html += `
               <div class="line-card" style="--lc:${line.color}" onclick="navigate('arrival', '${mun.id}', '${key}', '${stop.id}')">
@@ -1253,7 +1307,7 @@ function buildLinesScreen(municipalityId) {
     const lines = MUNICIPALITIES_DATA[municipalityId]?.lines || {};
     console.log("Found lines:", Object.keys(lines).length);
     Object.entries(lines).forEach(([key, line]) => {
-        const nextBus = minutesUntil(line.freq);
+        const nextBus = minutesUntil(line, 0);
         const rgb = hexToRgb(line.color);
         const routeTag = (line.stops && line.stops.length > 1)
             ? `${line.stops[0].name} → ${line.stops[line.stops.length - 1].name}`
@@ -1300,7 +1354,7 @@ function buildStopsScreen(municipalityId, lineKey) {
             const isLast = i === line.stops.length - 1;
             const badge = isFirst ? `<span class="stop-badge start">Αφετηρία</span>`
                 : isLast ? `<span class="stop-badge end">Τέρμα</span>` : '';
-            const nextBus = minutesUntil(line.freq, i, stopCount);
+            const nextBus = minutesUntil(line, i);
             const stopIdStr = `${municipalityId}|${lineKey}|${s.id}`;
             const isFav = favoriteStops.includes(stopIdStr);
             const favIcon = isFav ? '♥' : '♡';
@@ -1334,8 +1388,8 @@ function buildArrivalScreen(municipalityId, lineKey, stopId) {
     const stopCount = line.stops.length;
     const now = new Date();
     const nowMins = now.getHours() * 60 + now.getMinutes();
-    const times = buildSchedule(line, nowMins);
-    const nextBus = minutesUntil(line.freq, stopIndex, stopCount);
+    const times = buildSchedule(line, nowMins, stopIndex);
+    const nextBus = minutesUntil(line, stopIndex);
 
     const arrivalHTML = nextBus === 0
         ? `<div class="arrival-now"><div class="pulse-dot"></div> Φτάνει τώρα!</div>`
@@ -1387,7 +1441,7 @@ function startCountdown(municipalityId, lineKey, stopId) {
     const stopIndex = line.stops.findIndex(s => s.id === stopId);
     const stopCount = line.stops.length;
     countdownInterval = setInterval(() => {
-        const mins = minutesUntil(line.freq, stopIndex, stopCount);
+        const mins = minutesUntil(line, stopIndex);
         const numEl = document.getElementById('cdNum');
         const lblEl = document.getElementById('cdLabel');
         if (!numEl) { clearInterval(countdownInterval); return; }
@@ -1541,15 +1595,44 @@ async function fetchLines(municipalityId) {
         if (!mun) return;
         if (!mun.lines) mun.lines = {};
 
+        const ROUTE_COLORS = [
+            '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6',
+            '#06b6d4', '#f97316', '#f43f5e', '#84cc16', '#6366f1',
+            '#eab308', '#14b8a6', '#d946ef', '#22c55e', '#0ea5e9'
+        ];
+
+        function getUniqueHexColor(idx) {
+            if (idx < ROUTE_COLORS.length) return ROUTE_COLORS[idx];
+            // Algorithmic distinct color generation using the golden ratio
+            const goldenRatio = 0.618033988749895;
+            const h = (((0.6 + idx * goldenRatio) % 1) * 360);
+            const s = 75 + (idx % 3) * 10; 
+            const l = 50 + (idx % 4) * 5;  
+            const lPerc = l / 100;
+            const a = (s / 100) * Math.min(lPerc, 1 - lPerc);
+            const f = n => {
+                const k = (n + h / 30) % 12;
+                const color = lPerc - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                return Math.round(255 * color).toString(16).padStart(2, '0');
+            };
+            return `#${f(0)}${f(8)}${f(4)}`;
+        }
+
+        let index = 0;
         (data.routes || []).forEach(r => {
             if (!mun.lines[r.id]) {
                 mun.lines[r.id] = { stops: [] };
             }
+            
+            // Assign a unique color if API doesn't provide one explicitly
+            const assignedColor = r.color || getUniqueHexColor(index);
+            index++;
+
             Object.assign(mun.lines[r.id], {
                 id: r.id,
                 code: r.code,
                 name: r.name,
-                color: r.status === 'delayed' ? '#ef4444' : '#3b7ef6',
+                color: r.status === 'delayed' ? '#ef4444' : assignedColor,
                 freq: r.frequency_minutes || 20,
                 status: r.status,
                 busPlate: r.bus_plate || null,
