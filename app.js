@@ -16,25 +16,31 @@ let favoriteLines = JSON.parse(localStorage.getItem('favoriteLines') || '[]');
 let favoriteStops = JSON.parse(localStorage.getItem('favoriteStops') || '[]');
 
 // ═══════════════════════════════════════════════════
-//  AUTH MODULE
+//  AUTH MODULE — Supabase
 // ═══════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://rldqhflxdvyzjcjhcole.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJsZHFoZmx4ZHZ5empjamhjb2xlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MDQ5MDcsImV4cCI6MjA4ODI4MDkwN30.tTYT9-okI6EMgY3IisGnP_pB-FQp4uw3IbigIpCji3I';
+// Use _sb to avoid collision with the global window.supabase object set by the CDN
+const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
 let currentUser = null; // { email } | null
 
-/** Check auth state on page load via GET /api/me */
+/** Check auth state on page load via Supabase session */
 async function checkAuthState() {
     try {
-        const res = await fetch('/api/me', { credentials: 'same-origin' });
-        if (res.ok) {
-            const data = await res.json();
-            currentUser = { email: data.email };
-        } else {
-            currentUser = null;
-        }
+        const { data: { session } } = await _sb.auth.getSession();
+        currentUser = session?.user ? { email: session.user.email } : null;
     } catch {
         currentUser = null;
     }
     updateAuthUI();
 }
+
+// Listen for auth state changes (login, logout, token refresh)
+_sb.auth.onAuthStateChange((_event, session) => {
+    currentUser = session?.user ? { email: session.user.email } : null;
+    updateAuthUI();
+});
 
 /** Update the profile button to reflect login state */
 function updateAuthUI() {
@@ -98,7 +104,7 @@ function setSubmitLoading(btnId, loading, originalText) {
     btn.textContent = loading ? 'Φορτώνει...' : originalText;
 }
 
-/** POST /api/register */
+/** Supabase: signUp */
 window.doRegister = async function (e) {
     e.preventDefault();
     const email = document.getElementById('regEmail').value.trim();
@@ -106,24 +112,28 @@ window.doRegister = async function (e) {
     const confirm = document.getElementById('regConfirm').value;
     const errorEl = document.getElementById('registerError');
     errorEl.textContent = '';
+    errorEl.style.color = '';
 
     if (password !== confirm) {
         errorEl.textContent = 'Οι κωδικοί δεν ταιριάζουν.';
         return;
     }
+    if (password.length < 8) {
+        errorEl.textContent = 'Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες.';
+        return;
+    }
     setSubmitLoading('registerSubmitBtn', true, 'Εγγραφή');
     try {
-        const res = await fetch('/api/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ email, password }),
-        });
-        const data = await res.json();
-        if (!res.ok) { errorEl.textContent = data.error || 'Σφάλμα εγγραφής.'; return; }
-        currentUser = { email: data.email };
-        updateAuthUI();
-        closeAuthModal();
+        const { data, error } = await _sb.auth.signUp({ email, password });
+        if (error) { errorEl.textContent = error.message || 'Σφάλμα εγγραφής.'; return; }
+        if (data.session) {
+            currentUser = { email: data.user.email };
+            updateAuthUI();
+            closeAuthModal();
+        } else {
+            errorEl.style.color = '#22c55e';
+            errorEl.textContent = '✅ Λάβατε email επιβεβαίωσης. Ελέγξτε τα εισερχόμενά σας!';
+        }
     } catch {
         errorEl.textContent = 'Σφάλμα σύνδεσης. Δοκιμάστε ξανά.';
     } finally {
@@ -131,7 +141,7 @@ window.doRegister = async function (e) {
     }
 };
 
-/** POST /api/login */
+/** Supabase: signInWithPassword */
 window.doLogin = async function (e) {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value.trim();
@@ -141,15 +151,9 @@ window.doLogin = async function (e) {
 
     setSubmitLoading('loginSubmitBtn', true, 'Σύνδεση');
     try {
-        const res = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ email, password }),
-        });
-        const data = await res.json();
-        if (!res.ok) { errorEl.textContent = data.error || 'Invalid credentials'; return; }
-        currentUser = { email: data.email };
+        const { data, error } = await _sb.auth.signInWithPassword({ email, password });
+        if (error) { errorEl.textContent = 'Λάθος email ή κωδικός.'; return; }
+        currentUser = { email: data.user.email };
         updateAuthUI();
         closeAuthModal();
     } catch {
@@ -159,17 +163,17 @@ window.doLogin = async function (e) {
     }
 };
 
-/** POST /api/logout */
+/** Supabase: signOut */
 window.doLogout = async function () {
     try {
-        await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+        await _sb.auth.signOut();
     } catch { /* ignore */ }
     currentUser = null;
     updateAuthUI();
     closeAuthModal();
 };
 
-/** POST /api/forgot-password */
+/** Supabase: resetPasswordForEmail */
 window.doForgotPassword = async function (e) {
     e.preventDefault();
     const email = document.getElementById('forgotEmail').value.trim();
@@ -180,15 +184,11 @@ window.doForgotPassword = async function (e) {
 
     setSubmitLoading('forgotSubmitBtn', true, 'Αποστολή συνδέσμου');
     try {
-        const res = await fetch('/api/forgot-password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ email }),
+        const { error } = await _sb.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/`
         });
-        const data = await res.json();
-        if (!res.ok) { errorEl.textContent = data.error || 'Σφάλμα.'; return; }
-        successEl.textContent = data.message || 'Αν το email υπάρχει, θα σταλεί σύνδεσμος επαναφοράς.';
+        if (error) { errorEl.textContent = error.message || 'Σφάλμα.'; return; }
+        successEl.textContent = 'Αν το email υπάρχει, θα σταλεί σύνδεσμος επαναφοράς.';
     } catch {
         errorEl.textContent = 'Σφάλμα σύνδεσης. Δοκιμάστε ξανά.';
     } finally {
@@ -196,12 +196,9 @@ window.doForgotPassword = async function (e) {
     }
 };
 
-/** POST /api/reset-password */
+/** Supabase: updateUser — called after user clicks the email reset link */
 window.doResetPassword = async function (e) {
     e.preventDefault();
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('reset_token');
-    const email = params.get('email');
     const password = document.getElementById('resetPassword').value;
     const confirm = document.getElementById('resetConfirm').value;
     const errorEl = document.getElementById('resetError');
@@ -210,19 +207,13 @@ window.doResetPassword = async function (e) {
     successEl.textContent = '';
 
     if (password !== confirm) { errorEl.textContent = 'Οι κωδικοί δεν ταιριάζουν.'; return; }
+    if (password.length < 8) { errorEl.textContent = 'Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες.'; return; }
 
     setSubmitLoading('resetSubmitBtn', true, 'Αλλαγή κωδικού');
     try {
-        const res = await fetch('/api/reset-password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ email, token, password }),
-        });
-        const data = await res.json();
-        if (!res.ok) { errorEl.textContent = data.error || 'Σφάλμα.'; return; }
-        successEl.textContent = data.message || 'Ο κωδικός άλλαξε επιτυχώς!';
-        // Clear the token from the URL without reload
+        const { error } = await _sb.auth.updateUser({ password });
+        if (error) { errorEl.textContent = error.message || 'Σφάλμα.'; return; }
+        successEl.textContent = 'Ο κωδικός άλλαξε επιτυχώς!';
         window.history.replaceState({}, '', '/');
         setTimeout(() => { closeAuthModal(); showPanel('login'); }, 2000);
     } catch {
@@ -232,13 +223,69 @@ window.doResetPassword = async function (e) {
     }
 };
 
-/** On page load, check if URL contains a reset_token and open the reset panel */
+/** Supabase fires PASSWORD_RECOVERY event when user arrives via reset email link */
 function checkResetToken() {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('reset_token') && params.get('email')) {
-        openAuthModal('reset');
+    _sb.auth.onAuthStateChange((event) => {
+        if (event === 'PASSWORD_RECOVERY') {
+            openAuthModal('reset');
+        }
+    });
+}
+
+/** Update the profile button to reflect login state */
+function updateAuthUI() {
+    const btn = document.getElementById('profileBtn');
+    if (!btn) return;
+    if (currentUser) {
+        const initial = currentUser.email.charAt(0).toUpperCase();
+        btn.textContent = initial;
+        btn.classList.add('logged-in');
+        btn.setAttribute('aria-label', 'Προφίλ / Αποσύνδεση');
+    } else {
+        btn.textContent = '👤';
+        btn.classList.remove('logged-in');
+        btn.setAttribute('aria-label', 'Σύνδεση / Λογαριασμός');
     }
 }
+
+/** Handle click on profile button */
+window.handleProfileBtnClick = function () {
+    if (currentUser) {
+        openAuthModal('profile');
+    } else {
+        openAuthModal('login');
+    }
+};
+
+/** Show the auth modal on a specific panel */
+function openAuthModal(panel) {
+    showPanel(panel);
+    document.getElementById('authModal').classList.add('visible');
+}
+
+/** Close the auth modal */
+window.closeAuthModal = function () {
+    document.getElementById('authModal').classList.remove('visible');
+};
+
+/** Close modal when clicking backdrop */
+document.getElementById('authModal').addEventListener('click', function (e) {
+    if (e.target === this) closeAuthModal();
+});
+
+/** Switch visible panel inside the modal */
+window.showPanel = function (name) {
+    ['login', 'register', 'forgot', 'reset', 'profile'].forEach(p => {
+        const el = document.getElementById('panel' + p.charAt(0).toUpperCase() + p.slice(1));
+        if (el) el.classList.toggle('hidden', p !== name);
+    });
+    // Populate profile panel if needed
+    if (name === 'profile' && currentUser) {
+        document.getElementById('profileEmail').textContent = currentUser.email;
+        document.getElementById('profileAvatar').textContent = currentUser.email.charAt(0).toUpperCase();
+    }
+};
+
 
 // ═══════════════════════════════════════════════════
 //  SETTINGS MODULE
